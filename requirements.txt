@@ -1,0 +1,12 @@
+# Python 3.12. Install into the repo's virtual environment:
+#   python -m venv .venv && .venv\Scripts\activate && pip install -r requirements.txt
+anthropic==1.11.0
+ollama==0.4.8
+httpx==0.28.1        # used by ollama; its transport errors are mapped to retryable errors
+PyYAML==6.0.3
+python-dotenv==1.2.4
+pandas==3.0.6        # imported by the frozen v0 simulate.py in the equivalence test
+transformers==5.18.0 # GPT-2 perplexity (EV-5)
+torch==2.14.1
+pytest==9.1.1
+ruff==0.16.10

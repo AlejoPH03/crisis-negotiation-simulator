@@ -1,20 +1,21 @@
 """
 Negotiation simulation package.
+
+Kept light on purpose: importing `src` does not load transformers/torch.
+The v0 version imported `prompts.py`, `compute_success_rate`,
+`compute_efficiency` and `check_success`, none of which exist.
 """
 
-from .simulate import run_negotiation, run_experiments
-from .metrics import compute_success_rate, compute_perplexity, compute_efficiency
-from .utils import check_success, timer
-from .prompts import SCENARIO_INTRO, PROMPTS
+__all__ = ["run_negotiation", "timer"]
 
-__all__ = [
-    'run_negotiation',
-    'run_experiments',
-    'compute_success_rate',
-    'compute_perplexity',
-    'compute_efficiency',
-    'check_success',
-    'timer',
-    'SCENARIO_INTRO',
-    'PROMPTS'
-] 
+
+def __getattr__(name):
+    if name == "run_negotiation":
+        from .simulate import run_negotiation
+
+        return run_negotiation
+    if name == "timer":
+        from .utils import timer
+
+        return timer
+    raise AttributeError(name)
