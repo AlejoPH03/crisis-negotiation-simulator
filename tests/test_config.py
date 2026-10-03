@@ -9,11 +9,11 @@ from src.config import ConfigError, config_hash, load_config, parse_config
 CONFIGS = Path(__file__).parent.parent / "configs"
 
 
-def raw(name="e1_gemma.yaml"):
+def raw(name="e2_haiku.yaml"):
     return yaml.safe_load((CONFIGS / name).read_text(encoding="utf-8"))
 
 
-@pytest.mark.parametrize("name", ["e1_gemma.yaml"])
+@pytest.mark.parametrize("name", ["e1_gemma.yaml", "e2_haiku.yaml"])
 def test_shipped_configs_load(name):
     cfg = load_config(CONFIGS / name)
     assert cfg.llm.temperature == 0.6  # FR-8
@@ -29,6 +29,14 @@ def test_e1_reproduces_v0_settings():
     assert cfg.run.runs_per_configuration == 10
 
 
+def test_e2_settings():
+    cfg = load_config(CONFIGS / "e2_haiku.yaml")
+    assert (cfg.llm.backend, cfg.llm.model, cfg.llm.max_tokens) == ("claude", "claude-haiku-4-5", 300)
+    assert cfg.budget.cap_usd == 5.0
+    assert cfg.budget.pricing["claude-haiku-4-5"].output_per_mtok == 5.0
+    assert cfg.llm.opening_user_message
+
+
 def test_hash_is_stable_and_order_independent():
     a = raw()
     b = dict(reversed(list(copy.deepcopy(a).items())))
@@ -38,7 +46,7 @@ def test_hash_is_stable_and_order_independent():
     assert config_hash(a) != config_hash(c)
 
 
-def mutate(fn, name="e1_gemma.yaml"):
+def mutate(fn, name="e2_haiku.yaml"):
     data = raw(name)
     fn(data)
     return data
@@ -58,6 +66,8 @@ def mutate(fn, name="e1_gemma.yaml"):
         lambda d: d["game"].update(fbi_personas=["fbi_friendly"]),
         lambda d: d["game"].update(starts_with=["hostage"]),
         lambda d: d["game"].update(max_rounds=0),
+        lambda d: d["llm"].update(opening_user_message=None),
+        lambda d: d["budget"].update(pricing={}),  # claude model without a price
         lambda d: d["budget"].update(cap_usd=-1),
     ],
 )

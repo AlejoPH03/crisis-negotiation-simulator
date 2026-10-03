@@ -1,0 +1,38 @@
+# E2: model swap. Same logic as E1, Claude Haiku 4.5 instead of gemma3:4b.
+condition: E2
+description: Model swap only. last_message memory, regex detectors, rule engine and canned lines.
+
+llm:
+  backend: claude
+  model: claude-haiku-4-5
+  temperature: 0.6          # held constant across backends (FR-8)
+  max_tokens: 300           # D4
+  backend_options: {}       # Claude gets no top_k/top_p/penalties
+  # Neutral first user turn, sent only when an agent speaks first (D6).
+  opening_user_message: "(The phone line connects. You speak first.)"
+
+game:
+  memory_mode: last_message
+  detection_mode: regex
+  decision_mode: rules
+  max_rounds: 10
+  fbi_personas: [fbi_empathy, fbi_authority]
+  criminal_personas: [criminal_unstable, criminal_calculated]
+  starts_with: [fbi, criminal]
+
+run:
+  runs_per_configuration: 10
+  seed: 20261003
+  output_dir: results/e2
+  compute_perplexity: true
+  max_consecutive_failures: 3
+
+retry:
+  max_retries: 5
+  base_delay_s: 2.0
+  max_delay_s: 60.0
+
+budget:
+  cap_usd: 5.00             # NF-1: runner stops when estimated spend reaches this
+  pricing:                  # USD per million tokens, Anthropic list prices (cached 2026-09-25)
+    claude-haiku-4-5: {input_per_mtok: 1.00, output_per_mtok: 5.00}
