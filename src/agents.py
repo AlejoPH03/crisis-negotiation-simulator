@@ -11,7 +11,6 @@ import logging
 import random
 import re
 from collections import deque
-from typing import Dict, List, Optional
 
 from .llm.base import GenerationSettings, LLMClient, LLMResponse
 from .states import AwaitAgreementState, BaseState, EndState, InitializationState, NegotiateState
@@ -19,34 +18,35 @@ from .utils import detect_agreement
 
 logger = logging.getLogger(__name__)
 
+
 class BaseAgent:
     """Base class for all negotiation agents."""
 
-    def __init__(self, llm: LLMClient, generation: GenerationSettings, rng: Optional[random.Random] = None):
+    def __init__(self, llm: LLMClient, generation: GenerationSettings, rng: random.Random | None = None):
         self.llm = llm
         self.generation = generation
         self.rng = rng if rng is not None else random.Random()
-        self.llm_calls: List[LLMResponse] = []
-        self.last_canned_prefix: Optional[str] = None
+        self.llm_calls: list[LLMResponse] = []
+        self.last_canned_prefix: str | None = None
         self.model = llm.model
-        self.history: List[Dict[str, str]] = []
+        self.history: list[dict[str, str]] = []
         self.recent_responses = deque(maxlen=3)
         self.conversation_turns = 0
         self.used_metaphors = set()
         self.current_state: BaseState = InitializationState()
         self.current_state.enter(self)
-        
+
     def set_state(self, new_state: BaseState) -> None:
         """Transition to a new state."""
         self.current_state.exit(self)
         self.current_state = new_state
         self.current_state.enter(self)
-        
+
     def is_finished(self) -> bool:
         """Check if the agent has finished its negotiation."""
         return isinstance(self.current_state, EndState)
-        
-    def get_response(self, messages: List[Dict[str, str]]) -> str:
+
+    def get_response(self, messages: list[dict[str, str]]) -> str:
         """Get a response from the LLM.
 
         LLM errors propagate so the run is marked failed (NF-2); they are
@@ -56,7 +56,9 @@ class BaseAgent:
         if messages:
             last_msg = messages[-1]
             if last_msg["role"] == "system":
-                last_msg["content"] += "\n\nIMPORTANT: Do not repeat previous responses. Each response should be unique and progress the negotiation. Avoid using complex metaphors or abstract concepts. Stay focused on concrete demands and actions."
+                last_msg["content"] += (
+                    "\n\nIMPORTANT: Do not repeat previous responses. Each response should be unique and progress the negotiation. Avoid using complex metaphors or abstract concepts. Stay focused on concrete demands and actions."
+                )
 
         # Every caller puts get_system_prompt() first; the rest are user/assistant turns.
         if messages[0]["role"] != "system":
@@ -69,16 +71,16 @@ class BaseAgent:
         )
         self.llm_calls.append(response)
         return response.text
-    
+
     def _is_repetitive(self, response: str) -> bool:
         """Check if the response is too similar to recent responses."""
         if not self.recent_responses:
             return False
-            
+
         # Simple check for exact repetition
         if response in self.recent_responses:
             return True
-            
+
         # Check for high similarity with recent responses
         words = set(response.lower().split())
         for prev_response in self.recent_responses:
@@ -86,14 +88,14 @@ class BaseAgent:
             similarity = len(words.intersection(prev_words)) / len(words.union(prev_words))
             if similarity > 0.6:
                 return True
-        
+
         # Check for metaphorical repetition
         metaphors = self._extract_metaphors(response)
         if metaphors.intersection(self.used_metaphors):
             return True
-            
+
         return False
-    
+
     def _extract_metaphors(self, text: str) -> set:
         """Extract potential metaphors from text."""
         patterns = [
@@ -106,22 +108,22 @@ class BaseAgent:
             r"it's (\w+)ful",
             r"it's (\w+)ive",
             r"it's (\w+)al",
-            r"it's (\w+)ic"
+            r"it's (\w+)ic",
         ]
-        
+
         metaphors = set()
         for pattern in patterns:
             matches = re.finditer(pattern, text.lower())
             metaphors.update(match.group(1) for match in matches)
-            
+
         return metaphors
-        
-    def respond(self, prev_message: Optional[str] = None) -> str:
+
+    def respond(self, prev_message: str | None = None) -> str:
         """Generate a response based on the conversation history."""
         # Check for immediate agreement detection
         if prev_message and detect_agreement(self, prev_message) and isinstance(self.current_state, NegotiateState):
             self.set_state(AwaitAgreementState())
-        
+
         response = self.current_state.handle(self, prev_message)
         next_state = self.current_state.next_state(self)
         if next_state != type(self.current_state):
@@ -143,25 +145,28 @@ class BaseAgent:
         else:
             return "I understand your demand."
 
+
 class FBIAgent(BaseAgent):
     """FBI negotiator agent."""
-    
-    def __init__(self, persona: str, llm: LLMClient, generation: GenerationSettings, rng: Optional[random.Random] = None):
+
+    def __init__(self, persona: str, llm: LLMClient, generation: GenerationSettings, rng: random.Random | None = None):
         super().__init__(llm, generation, rng)
         self.persona = persona
         self.demands = ["Release the pregnant hostage immediately"]
         self.current_demand_idx = 0
         self.agreed_demands = set()
         self.last_demand_attempt = 0
-        
-    def get_system_prompt(self) -> Dict[str, str]:
+
+    def get_system_prompt(self) -> dict[str, str]:
         """Get the system prompt based on persona."""
         current_demand = self.demands[self.current_demand_idx]
-        demands_status = "\n".join([
-            f"- Demand {i+1}: {demand} {'✓' if i in self.agreed_demands else '✗'}"
-            for i, demand in enumerate(self.demands)
-        ])
-        
+        demands_status = "\n".join(
+            [
+                f"- Demand {i + 1}: {demand} {'✓' if i in self.agreed_demands else '✗'}"
+                for i, demand in enumerate(self.demands)
+            ]
+        )
+
         if self.persona == "fbi_empathy":
             return {
                 "role": "system",
@@ -214,7 +219,7 @@ class FBIAgent(BaseAgent):
 
                 Current Focus:
                 {current_demand}
-                """
+                """,
             }
         else:  # fbi_authority
             return {
@@ -257,9 +262,9 @@ class FBIAgent(BaseAgent):
 
                 Current Focus:
                 {current_demand}
-                """
+                """,
             }
-    
+
     def _check_agreement(self, message: str) -> bool:
         """Check if the message indicates agreement to the current demand."""
         current = self.demands[self.current_demand_idx]
@@ -279,7 +284,7 @@ class FBIAgent(BaseAgent):
             r"\b(?:i|i'll|i will)\s+(?:release|let|free)\s+(?:her|the pregnant (?:woman|hostage))\s+(?:immediately|right away|right now)\s+(?:after|once|when)\s+(?:the|a|an)\s+(?:vehicle|car|transport)\s+(?:is|gets|becomes)\s+(?:delivered|provided|given|supplied)\b",
             r"\b(?:i|i'll|i will)\s+(?:release|let|free)\s+(?:her|the pregnant (?:woman|hostage))\s+(?:provided|on condition|only if)\s+(?:you|they)\s+(?:secure|get|provide|give|bring)\s+(?:the|a|an)\s+(?:vehicle|car|transport)\b",
             r"\b(?:provide|give|bring|get)\s+(?:the|a|an)\s+(?:vehicle|car|transport)\s*[,.]\s*(?:i|i'll|i will)\s+(?:release|let|free)\s+(?:her|the pregnant (?:woman|hostage))\b",
-            r"\b(?:i|i'll|i will)\s+(?:release|let|free)\s+(?:her|the pregnant (?:woman|hostage))\s+(?:first|before|after|once|when|if)\s+(?:you|they)\s+(?:give|provide|bring|get)\s+(?:me|us)\s+(?:the|a|an)\s+(?:vehicle|car|transport)\b"
+            r"\b(?:i|i'll|i will)\s+(?:release|let|free)\s+(?:her|the pregnant (?:woman|hostage))\s+(?:first|before|after|once|when|if)\s+(?:you|they)\s+(?:give|provide|bring|get)\s+(?:me|us)\s+(?:the|a|an)\s+(?:vehicle|car|transport)\b",
         ]
 
         # If any release statement is followed by ellipsis or conditions, this is not an agreement
@@ -299,11 +304,11 @@ class FBIAgent(BaseAgent):
             f"I WILL {current.upper()}",
             f"OKAY, I'LL {current.upper()}",
             f"FINE, I'LL {current.upper()}",
-            f"I AGREE TO DEMAND {self.current_demand_idx+1}",
-            f"I AGREE TO DEMAND {self.current_demand_idx+1}: {current.upper()}",
+            f"I AGREE TO DEMAND {self.current_demand_idx + 1}",
+            f"I AGREE TO DEMAND {self.current_demand_idx + 1}: {current.upper()}",
             # passive-voice forms
             f"{noun_phrase} WILL BE RELEASED",
-            f"RELEASE {noun_phrase}."
+            f"RELEASE {noun_phrase}.",
         ]
         if has_immediate:
             patterns.append(f"{noun_phrase} WILL BE RELEASED IMMEDIATELY")
@@ -329,29 +334,45 @@ class FBIAgent(BaseAgent):
             r"\bi\s+will\s+hand\s+her\s+over\b",
             r"\bi\s+will\s+turn\s+her\s+over\b",
             r"\bi\s+will\s+let\s+you\s+have\s+her\b",
-            r"\bi\s+will\s+let\s+you\s+take\s+her\b"
+            r"\bi\s+will\s+let\s+you\s+take\s+her\b",
         ]
-        
+
         for pattern in release_patterns:
             match = re.search(pattern, msg_lower)
             if match:
                 # Get the text after the release statement
-                after_release = msg_lower[match.end():].strip()
+                after_release = msg_lower[match.end() :].strip()
                 # If there's ellipsis or conditions after, this is not an agreement
-                if re.search(r"\.{3,}|\b(?:if|but|however|though|although|yet|once|when|after|before|until|while|only if|but only if|as long as|provided that|on condition that)\b", after_release):
+                if re.search(
+                    r"\.{3,}|\b(?:if|but|however|though|although|yet|once|when|after|before|until|while|only if|but only if|as long as|provided that|on condition that)\b",
+                    after_release,
+                ):
                     return False
                 return True
 
         # === 5) Natural-language per-sentence first-person only ===
         sentences = re.split(r"[.?!]\s*", message)
-        verbs = {"release", "releasing", "let", "letting", "free", "freeing", "give", "giving", "hand", "handing", "turn", "turning"}
+        verbs = {
+            "release",
+            "releasing",
+            "let",
+            "letting",
+            "free",
+            "freeing",
+            "give",
+            "giving",
+            "hand",
+            "handing",
+            "turn",
+            "turning",
+        }
         objects = {"her", "pregnant", "woman", "hostage", "one"}
         first_pers = {"i", "i am", "i'm", "im", "i'll", "ill"}
 
         for sent in sentences:
             sent = sent.strip()
             # skip questions/threats
-            if not sent or sent.endswith('?') or sent.endswith('?!'):
+            if not sent or sent.endswith("?") or sent.endswith("?!"):
                 continue
 
             clean = re.sub(r"[^\w\s]", " ", sent.lower())
@@ -361,18 +382,21 @@ class FBIAgent(BaseAgent):
                 if t not in verbs:
                     continue
                 # skip noun‐use "release of ..."
-                if t == "release" and i+1 < len(tokens) and tokens[i+1] == "of":
+                if t == "release" and i + 1 < len(tokens) and tokens[i + 1] == "of":
                     continue
                 # require first-person cue, not bare imperative
-                prev2 = tokens[max(0, i-2):i]
+                prev2 = tokens[max(0, i - 2) : i]
                 if not any(p in prev2 for p in first_pers):
                     continue
                 # require one of our objects in the next few tokens
-                if any(obj in tokens[i+1 : i+6] for obj in objects):
+                if any(obj in tokens[i + 1 : i + 6] for obj in objects):
                     # Check if this is followed by ellipsis or conditions
-                    remaining_tokens = tokens[i+6:]
+                    remaining_tokens = tokens[i + 6 :]
                     remaining_text = " ".join(remaining_tokens)
-                    if re.search(r"\.{3,}|\b(?:if|but|however|though|although|yet|once|when|after|before|until|while|only if|but only if|as long as|provided that|on condition that)\b", remaining_text):
+                    if re.search(
+                        r"\.{3,}|\b(?:if|but|however|though|although|yet|once|when|after|before|until|while|only if|but only if|as long as|provided that|on condition that)\b",
+                        remaining_text,
+                    ):
                         return False
                     return True
 
@@ -384,7 +408,7 @@ class FBIAgent(BaseAgent):
             r"\bi\s+understand\s+what\s+you\s+want\b",
             r"\bconsider\s+this\s+a\s+demonstration\b",
             r"\bwillingness\s+to\s+cooperate\b",
-            r"\bwithin\s+parameters\b"
+            r"\bwithin\s+parameters\b",
         ]
         for phrase in understanding_phrases:
             if re.search(phrase, message.lower()):
@@ -395,7 +419,7 @@ class FBIAgent(BaseAgent):
     def _check_threat(self, message: str) -> bool:
         """Check if the message contains a direct threat to the pregnant hostage."""
         msg_lower = message.lower()
-        
+
         # === 1) Direct threat patterns ===
         direct_threat_patterns = [
             # Explicit threats to harm
@@ -446,13 +470,13 @@ class FBIAgent(BaseAgent):
             r"\b(?:she|the pregnant (?:woman|hostage))\s+(?:is|are|will be|going to be)\s+(?:the|a|an)\s+(?:first|initial|primary)\s+(?:casualty|victim|target|example)\b",
             r"\b(?:she|the pregnant (?:woman|hostage))\s+(?:is|are|will be|going to be)\s+(?:the|a|an)\s+(?:first|initial|primary)\s+(?:one|person|hostage)\s+(?:to|that will|that's going to)\s+(?:go|die|be killed|be murdered|be executed|be eliminated|be terminated)\b",
             r"\b(?:she|the pregnant (?:woman|hostage))\s+(?:is|are|will be|going to be)\s+(?:the|a|an)\s+(?:first|initial|primary)\s+(?:one|person|hostage)\s+(?:to|that will|that's going to)\s+(?:suffer|pay|regret|be sorry)\b",
-            r"\b(?:she|the pregnant (?:woman|hostage))\s+(?:is|are|will be|going to be)\s+(?:the|a|an)\s+(?:first|initial|primary)\s+(?:one|person|hostage)\s+(?:to|that will|that's going to)\s+(?:feel|experience|endure|suffer)\s+(?:the|a|an)\s+(?:consequences|results|outcome|price)\b"
+            r"\b(?:she|the pregnant (?:woman|hostage))\s+(?:is|are|will be|going to be)\s+(?:the|a|an)\s+(?:first|initial|primary)\s+(?:one|person|hostage)\s+(?:to|that will|that's going to)\s+(?:feel|experience|endure|suffer)\s+(?:the|a|an)\s+(?:consequences|results|outcome|price)\b",
         ]
-        
+
         # Check for direct threats
         if any(re.search(pattern, msg_lower) for pattern in direct_threat_patterns):
             return True
-            
+
         # === 2) Implicit threat patterns ===
         implicit_threat_patterns = [
             # References to worsening condition
@@ -467,13 +491,13 @@ class FBIAgent(BaseAgent):
             # Warning patterns
             r"\b(?:don't|do not)\s+(?:push|test|challenge|provoke|anger|frustrate)\s+(?:me|us)\b",
             r"\b(?:i'm|i am)\s+(?:warning|telling)\s+(?:you|them)\b",
-            r"\b(?:last|final)\s+(?:warning|chance|opportunity)\b"
+            r"\b(?:last|final)\s+(?:warning|chance|opportunity)\b",
         ]
-        
+
         # Check for implicit threats
         if any(re.search(pattern, msg_lower) for pattern in implicit_threat_patterns):
             return True
-            
+
         # === 3) Emotional indicators that might suggest threat ===
         emotional_indicators = [
             # Anger and frustration
@@ -488,13 +512,13 @@ class FBIAgent(BaseAgent):
             # Warning indicators
             r"\b(?:warning|threatening|threat|threaten)\b",
             r"\b(?:don't|do not)\s+(?:dare|try|attempt|think about)\b",
-            r"\b(?:i'm|i am)\s+(?:telling|warning|promising)\s+(?:you|them)\b"
+            r"\b(?:i'm|i am)\s+(?:telling|warning|promising)\s+(?:you|them)\b",
         ]
-        
+
         # Check for emotional indicators
         if any(re.search(pattern, msg_lower) for pattern in emotional_indicators):
             return True
-            
+
         return False
 
     def respond(self, message: str) -> str:
@@ -505,22 +529,22 @@ class FBIAgent(BaseAgent):
             self.agreed_demands.add(self.current_demand_idx)
             self.set_state(AwaitAgreementState())
             return "Thank you for agreeing to release the pregnant hostage. We will ensure her safety and provide immediate medical attention."
-        
+
         # Get response from the LLM
         messages = [self.get_system_prompt()]
         if message:
             messages.append({"role": "user", "content": message})
-        
+
         # Get base response from the LLM
         llm_response = self.get_response(messages)
-        
+
         # Add message to history if it exists
         if message:
             self.history.append({"role": "user", "content": message})
-        
+
         # Add response to history
         self.history.append({"role": "assistant", "content": llm_response})
-        
+
         # Update state if needed
         try:
             next_state = self.current_state.next_state(self)
@@ -529,50 +553,51 @@ class FBIAgent(BaseAgent):
         except Exception as e:
             logger.warning(f"Error in state transition: {e}")
             # Continue with current state if there's an error
-        
+
         return llm_response
+
 
 class CriminalAgent(BaseAgent):
     """Criminal agent."""
-    
-    def __init__(self, persona: str, llm: LLMClient, generation: GenerationSettings, rng: Optional[random.Random] = None):
+
+    def __init__(self, persona: str, llm: LLMClient, generation: GenerationSettings, rng: random.Random | None = None):
         super().__init__(llm, generation, rng)
         self.persona = persona
         self.demands = ["Get an unmarked vehicle for exit"]
         self.current_demand_idx = 0
         self.agreed_demands = set()
         self.last_demand_attempt = 0
-        
+
         # Initialize emotional state based on persona
         if persona == "criminal_unstable":
             self.emotional_state = {
                 "calmness": 0.3,  # Start with low calmness
-                "anxiety": 0.7,   # Start with high anxiety
-                "anger": 0.6      # Start with high anger
+                "anxiety": 0.7,  # Start with high anxiety
+                "anger": 0.6,  # Start with high anger
             }
-        
+
         # Initialize strategic state for calculated criminal
         if persona == "criminal_calculated":
             self.strategic_state = {
-                "cooperation": 0.3,    # Start with low cooperation
-                "pressure": 0.5,       # Start with medium pressure
-                "patience": 0.5        # Start with medium patience
+                "cooperation": 0.3,  # Start with low cooperation
+                "pressure": 0.5,  # Start with medium pressure
+                "patience": 0.5,  # Start with medium patience
             }
-        
+
         self.conversation_history = []
         self.empathy_counter = 0
         self.authority_counter = 0
         self.last_response_was_empathic = False
         self.last_response_was_authoritative = False
-    
+
     def _detect_empathy(self, message: str) -> bool:
         """Detect if the message contains empathetic language."""
         # Only detect empathy for unstable criminal
         if self.persona != "criminal_unstable":
             return False
-            
+
         msg_lower = message.lower()
-        
+
         # Empathetic language patterns based on actual FBI responses
         empathy_patterns = [
             # Understanding and validation
@@ -581,44 +606,40 @@ class CriminalAgent(BaseAgent):
             r"\b(?:i|we)\s+(?:genuinely|truly|really)\s+(?:understand|hear|appreciate)\s+(?:your|the)\s+(?:urgency|concerns|worries|fears)\b",
             r"\b(?:i|we)\s+(?:recognize|acknowledge)\s+(?:the|your)\s+(?:tremor|shaking|emotion)\s+(?:in|of)\s+(?:your|the)\s+(?:voice|tone|words)\b",
             r"\b(?:i|we)\s+(?:see|notice|observe)\s+(?:that|how)\s+(?:you|you're|you are)\s+(?:feeling|experiencing|going through)\s+(?:completely|totally|absolutely)\s+(?:overwhelmed|stressed|anxious)\b",
-            
             # Support and assistance
             r"\b(?:i|we)\s+(?:want|would like)\s+(?:to|to help)\s+(?:alleviate|ease|reduce)\s+(?:your|the)\s+(?:concerns|worries|fears|stress|anxiety)\b",
             r"\b(?:i|we)\s+(?:am|are)\s+(?:not|not going to)\s+(?:dismiss|ignore|overlook)\s+(?:your|the)\s+(?:concerns|worries|fears|feelings)\b",
             r"\b(?:i|we)\s+(?:appreciate|value|respect)\s+(?:you|that)\s+(?:sharing|telling me|explaining)\s+(?:that|how)\s+(?:you|you're|you are)\s+(?:feeling|experiencing|going through)\b",
             r"\b(?:i|we)\s+(?:want|would like)\s+(?:to|to help)\s+(?:demonstrate|show|prove)\s+(?:that|how)\s+(?:we|i)\s+(?:am|are)\s+(?:prioritizing|focusing on|concentrating on)\s+(?:her|their|everyone's)\s+(?:safety|well-being|security)\b",
             r"\b(?:i|we)\s+(?:care|concerned)\s+(?:about|for)\s+(?:you|your)\s+(?:safety|well-being|security)\s+(?:and|,)\s+(?:i|we)\s+(?:want|would like)\s+(?:to|to help)\s+(?:you|you get)\s+(?:through|past|beyond)\s+(?:this|it|the situation)\b",
-            
             # Collaborative language
             r"\b(?:let's|let us)\s+(?:start|begin|commence)\s+(?:with|by)\s+(?:a|one)\s+(?:simple|basic|straightforward)\s+(?:yes|no|answer|response)\b",
             r"\b(?:let's|let us)\s+(?:work|move)\s+(?:together|collaboratively|cooperatively)\b",
             r"\b(?:let's|let us)\s+(?:focus|concentrate)\s+(?:on|upon)\s+(?:safety|security|well-being)\b",
             r"\b(?:let's|let us)\s+(?:ensure|make sure|guarantee)\s+(?:everyone|all|both)\s+(?:is|are)\s+(?:safe|secure|okay)\b",
             r"\b(?:let's|let us)\s+(?:take|have)\s+(?:a|one)\s+(?:moment|minute|second)\s+(?:to|for)\s+(?:think|consider|reflect)\b",
-            
             # Respectful communication
             r"\b(?:i|we)\s+(?:am|are)\s+(?:not|not going to)\s+(?:patronize|talk down to|belittle)\s+(?:you|the criminal)\b",
             r"\b(?:i|we)\s+(?:am|are)\s+(?:not|not going to)\s+(?:waste|squander|lose)\s+(?:your|the)\s+(?:time|moment|opportunity)\b",
             r"\b(?:i|we)\s+(?:am|are)\s+(?:not|not going to)\s+(?:stand|wait|stay)\s+(?:here|there)\s+(?:with|holding)\s+(?:useless|pointless|meaningless)\s+(?:questions|statements|words)\b",
-            
             # New patterns for validation and understanding
             r"\b(?:i|we)\s+(?:hear|understand)\s+(?:your|the)\s+(?:frustration|anger|concern|worry)\b",
             r"\b(?:i|we)\s+(?:appreciate|value)\s+(?:your|the)\s+(?:honesty|directness|clarity)\b",
             r"\b(?:i|we)\s+(?:recognize|acknowledge)\s+(?:that|how)\s+(?:this|it)\s+(?:is|must be)\s+(?:difficult|hard|challenging)\s+(?:for|on)\s+(?:you|your part)\b",
             r"\b(?:i|we)\s+(?:want|would like)\s+(?:to|to help)\s+(?:you|the situation)\s+(?:move|progress|advance)\s+(?:forward|ahead|onward)\b",
-            r"\b(?:i|we)\s+(?:am|are)\s+(?:here|present)\s+(?:to|for)\s+(?:listen|hear|understand)\s+(?:to|what)\s+(?:you|your concerns)\s+(?:have|need)\s+(?:to|to say)\b"
+            r"\b(?:i|we)\s+(?:am|are)\s+(?:here|present)\s+(?:to|for)\s+(?:listen|hear|understand)\s+(?:to|what)\s+(?:you|your concerns)\s+(?:have|need)\s+(?:to|to say)\b",
         ]
-        
+
         return any(re.search(pattern, msg_lower) for pattern in empathy_patterns)
-    
+
     def _detect_authority(self, message: str) -> bool:
         """Detect if the message contains authoritative language."""
         # Only detect authority for unstable criminal
         if self.persona != "criminal_unstable":
             return False
-            
+
         msg_lower = message.lower()
-        
+
         # Authoritative language patterns based on actual FBI responses
         authority_patterns = [
             # Direct commands
@@ -679,19 +700,19 @@ class CriminalAgent(BaseAgent):
             r"\b(?:the|this)\s+(?:situation|circumstances|conditions)\b",
             r"\b(?:will|shall|must)\s+(?:be|get)\s+(?:met|handled|addressed|responded to)\s+(?:with|by|through)\s+(?:forceful|strong|direct|immediate)\s+(?:intervention|action|response|measures)\b",
             r"\b(?:do|don't|do not)\s+(?:test|challenge|defy|oppose)\s+(?:me|us|the law)\b",
-            r"\b(?:do|don't|do not)\s+(?:you|you dare|you think)\s+(?:understand|comprehend|realize)\b"
+            r"\b(?:do|don't|do not)\s+(?:you|you dare|you think)\s+(?:understand|comprehend|realize)\b",
         ]
-        
+
         return any(re.search(pattern, msg_lower) for pattern in authority_patterns)
-    
+
     def _detect_logical_threats(self, message: str) -> bool:
         """Detect if the message contains logical threats about consequences."""
         # Only detect logical threats for calculated criminal
         if self.persona != "criminal_calculated":
             return False
-            
+
         msg_lower = message.lower()
-        
+
         # Logical threat patterns
         logical_threat_patterns = [
             # Direct legal consequences
@@ -705,7 +726,6 @@ class CriminalAgent(BaseAgent):
             r"\b(?:aggravating|mitigating)\s+(?:circumstances|factors)\b",
             r"\b(?:plea|deal|bargain)\s+(?:is|are)\s+(?:off|available|possible)\b",
             r"\b(?:cooperation|assistance)\s+(?:will|would|could)\s+(?:help|benefit|reduce)\b",
-            
             # Process and verification patterns
             r"\b(?:need|require|must)\s+(?:to|to first|first)\s+(?:verify|check|confirm|ensure|validate)\b",
             r"\b(?:process|procedure|protocol)\s+(?:takes|requires|needs)\s+(?:time|a while|some time)\b",
@@ -716,7 +736,6 @@ class CriminalAgent(BaseAgent):
             r"\b(?:process|procedure|protocol)\s+(?:is|are)\s+(?:in|under)\s+(?:way|progress|development)\b",
             r"\b(?:working|trying|attempting)\s+(?:to|on)\s+(?:arrange|organize|prepare)\b",
             r"\b(?:will|would|could)\s+(?:take|require|need)\s+(?:some|a bit of|a little)\s+(?:time|while|moment)\b",
-            
             # New patterns for logical consequences
             r"\b(?:your|the)\s+(?:actions|behavior|conduct)\s+(?:have|has)\s+(?:triggered|caused|resulted in)\b",
             r"\b(?:full|complete|total|entire)\s+(?:tactical|military|police|law enforcement)\s+(?:response|action|intervention)\b",
@@ -740,7 +759,6 @@ class CriminalAgent(BaseAgent):
             r"\b(?:will|shall|must)\s+(?:be|get)\s+(?:met|handled|addressed|responded to)\s+(?:with|by|through)\s+(?:forceful|strong|direct|immediate)\s+(?:intervention|action|response|measures)\b",
             r"\b(?:do|don't|do not)\s+(?:test|challenge|defy|oppose)\s+(?:me|us|the law)\b",
             r"\b(?:do|don't|do not)\s+(?:you|you dare|you think)\s+(?:understand|comprehend|realize)\b",
-            
             # New patterns for verification and process
             r"\b(?:confirm|verify|check)\s+(?:the|these|those)\s+(?:details|specifications|requirements)\b",
             r"\b(?:need|require|must)\s+(?:to|to first|first)\s+(?:confirm|verify|check)\b",
@@ -751,19 +769,19 @@ class CriminalAgent(BaseAgent):
             r"\b(?:need|require|must)\s+(?:to|to first|first)\s+(?:get|obtain|secure)\s+(?:approval|authorization|clearance)\b",
             r"\b(?:process|procedure|protocol)\s+(?:is|are)\s+(?:in|under)\s+(?:way|progress|development)\b",
             r"\b(?:working|trying|attempting)\s+(?:to|on)\s+(?:arrange|organize|prepare)\b",
-            r"\b(?:will|would|could)\s+(?:take|require|need)\s+(?:some|a bit of|a little)\s+(?:time|while|moment)\b"
+            r"\b(?:will|would|could)\s+(?:take|require|need)\s+(?:some|a bit of|a little)\s+(?:time|while|moment)\b",
         ]
-        
+
         return any(re.search(pattern, msg_lower) for pattern in logical_threat_patterns)
-    
+
     def _detect_vehicle_delay(self, message: str) -> bool:
         """Detect if the message indicates delay in providing the vehicle."""
         # Only detect vehicle delays for calculated criminal
         if self.persona != "criminal_calculated":
             return False
-            
+
         msg_lower = message.lower()
-        
+
         # Vehicle delay patterns
         delay_patterns = [
             r"\b(?:need|require|must)\s+(?:to|to first|first)\s+(?:verify|check|confirm|ensure|validate)\b",
@@ -775,120 +793,120 @@ class CriminalAgent(BaseAgent):
             r"\b(?:need|require|must)\s+(?:to|to first|first)\s+(?:get|obtain|secure)\s+(?:approval|authorization|clearance)\b",
             r"\b(?:process|procedure|protocol)\s+(?:is|are)\s+(?:in|under)\s+(?:way|progress|development)\b",
             r"\b(?:working|trying|attempting)\s+(?:to|on)\s+(?:arrange|organize|prepare)\b",
-            r"\b(?:will|would|could)\s+(?:take|require|need)\s+(?:some|a bit of|a little)\s+(?:time|while|moment)\b"
+            r"\b(?:will|would|could)\s+(?:take|require|need)\s+(?:some|a bit of|a little)\s+(?:time|while|moment)\b",
         ]
-        
+
         return any(re.search(pattern, msg_lower) for pattern in delay_patterns)
-    
+
     def _update_emotional_state(self, message: str) -> None:
         """Update emotional state based on message content."""
         # Only update emotional state for unstable criminal
         if self.persona != "criminal_unstable":
             return
-            
+
         # Check for empathetic language first
         if self._detect_empathy(message):
             # Increase calmness more significantly when empathy is detected
             self.emotional_state["calmness"] = min(1.0, self.emotional_state["calmness"] + 0.4)  # Increased effect
-            self.emotional_state["anxiety"] = max(0.0, self.emotional_state["anxiety"] - 0.3)    # Increased effect
-            self.emotional_state["anger"] = max(0.0, self.emotional_state["anger"] - 0.25)       # Increased effect
+            self.emotional_state["anxiety"] = max(0.0, self.emotional_state["anxiety"] - 0.3)  # Increased effect
+            self.emotional_state["anger"] = max(0.0, self.emotional_state["anger"] - 0.25)  # Increased effect
             logger.debug(f"Empathy detected - Calmness increased to {self.emotional_state['calmness']:.2f}")
-            
+
         # Check for threatening language
         if self._detect_threat(message):
             self.emotional_state["calmness"] = max(0.0, self.emotional_state["calmness"] - 0.3)
             self.emotional_state["anxiety"] = min(1.0, self.emotional_state["anxiety"] + 0.2)
             self.emotional_state["anger"] = min(1.0, self.emotional_state["anger"] + 0.25)
             logger.debug(f"Threat detected - Calmness decreased to {self.emotional_state['calmness']:.2f}")
-            
+
         # Check for de-escalation language
         if self._detect_deescalation(message):
             self.emotional_state["calmness"] = min(1.0, self.emotional_state["calmness"] + 0.15)
             self.emotional_state["anxiety"] = max(0.0, self.emotional_state["anxiety"] - 0.1)
             self.emotional_state["anger"] = max(0.0, self.emotional_state["anger"] - 0.1)
             logger.debug(f"De-escalation detected - Calmness increased to {self.emotional_state['calmness']:.2f}")
-            
+
         # Check for escalation language
         if self._detect_escalation(message):
             self.emotional_state["calmness"] = max(0.0, self.emotional_state["calmness"] - 0.2)
             self.emotional_state["anxiety"] = min(1.0, self.emotional_state["anxiety"] + 0.15)
             self.emotional_state["anger"] = min(1.0, self.emotional_state["anger"] + 0.15)
             logger.debug(f"Escalation detected - Calmness decreased to {self.emotional_state['calmness']:.2f}")
-            
+
         # Natural decay of emotions over time (happens last)
         self.emotional_state["calmness"] = max(0.0, self.emotional_state["calmness"] - 0.01)  # Reduced decay further
-        self.emotional_state["anxiety"] = min(1.0, self.emotional_state["anxiety"] + 0.01)    # Reduced decay further
-        self.emotional_state["anger"] = min(1.0, self.emotional_state["anger"] + 0.01)        # Reduced decay further
-        
+        self.emotional_state["anxiety"] = min(1.0, self.emotional_state["anxiety"] + 0.01)  # Reduced decay further
+        self.emotional_state["anger"] = min(1.0, self.emotional_state["anger"] + 0.01)  # Reduced decay further
+
         # Print current emotional state
         logger.debug(f"Current emotional state: {self.emotional_state}")
-    
+
     def _update_strategic_state(self, message: str) -> None:
         """Update the strategic state based on the message and current state."""
         if self.persona != "criminal_calculated":
             return
-            
+
         # Initialize strategic state if not exists
-        if not hasattr(self, 'strategic_state'):
+        if not hasattr(self, "strategic_state"):
             self.strategic_state = {
-                "cooperation": 0.3,    # Start with low cooperation
-                "pressure": 0.7,       # Start with high pressure
-                "patience": 0.5        # Start with medium patience
+                "cooperation": 0.3,  # Start with low cooperation
+                "pressure": 0.7,  # Start with high pressure
+                "patience": 0.5,  # Start with medium patience
             }
-            
+
         # Natural decay of strategic state (happens first)
         self.strategic_state["cooperation"] = max(0.0, self.strategic_state["cooperation"] - 0.01)
         self.strategic_state["pressure"] = min(1.0, self.strategic_state["pressure"] + 0.01)
         self.strategic_state["patience"] = max(0.0, self.strategic_state["patience"] - 0.01)
-        
+
         # Check for logical threats
         if self._detect_logical_threats(message):
             self.strategic_state["cooperation"] = min(1.0, self.strategic_state["cooperation"] + 0.2)
             self.strategic_state["pressure"] = max(0.0, self.strategic_state["pressure"] - 0.2)
             self.strategic_state["patience"] = min(1.0, self.strategic_state["patience"] + 0.2)
-            logger.debug(f"Logical threats detected - Cooperation increased to {self.strategic_state['cooperation']:.2f}")
-            
+            logger.debug(
+                f"Logical threats detected - Cooperation increased to {self.strategic_state['cooperation']:.2f}"
+            )
+
         # Check for vehicle delays
         if self._detect_vehicle_delay(message):
             self.strategic_state["cooperation"] = max(0.0, self.strategic_state["cooperation"] - 0.2)
             self.strategic_state["pressure"] = min(1.0, self.strategic_state["pressure"] + 0.3)
             self.strategic_state["patience"] = max(0.0, self.strategic_state["patience"] - 0.3)
             logger.debug(f"Vehicle delay detected - Pressure increased to {self.strategic_state['pressure']:.2f}")
-            
+
         # Check for de-escalation
         if self._detect_deescalation(message):
             self.strategic_state["cooperation"] = min(1.0, self.strategic_state["cooperation"] + 0.15)
             self.strategic_state["pressure"] = max(0.0, self.strategic_state["pressure"] - 0.1)
             self.strategic_state["patience"] = min(1.0, self.strategic_state["patience"] + 0.1)
             logger.debug(f"De-escalation detected - Cooperation increased to {self.strategic_state['cooperation']:.2f}")
-            
+
         # Check for escalation
         if self._detect_escalation(message):
             self.strategic_state["cooperation"] = max(0.0, self.strategic_state["cooperation"] - 0.2)
             self.strategic_state["pressure"] = min(1.0, self.strategic_state["pressure"] + 0.2)
             self.strategic_state["patience"] = max(0.0, self.strategic_state["patience"] - 0.2)
             logger.debug(f"Escalation detected - Pressure increased to {self.strategic_state['pressure']:.2f}")
-            
+
         # Print current strategic state
         logger.debug(f"Current strategic state: {self.strategic_state}")
 
     def _generate_cooperative_response(self, message: str) -> str:
         """Generate a response when the criminal is in a cooperative state."""
-        responses = [
-            "I will release the pregnant hostage."
-        ]
+        responses = ["I will release the pregnant hostage."]
         return self.rng.choice(responses)
-        
+
     def _generate_pressured_response(self, message: str) -> str:
         """Generate a response when the criminal is under pressure."""
         responses = [
             "Time is running out. I need that vehicle now.",
             "I'm not playing games. Get me the vehicle or face the consequences.",
             "I've been patient long enough. I will hurt her.",
-            "The clock is ticking. I will hurt her."
+            "The clock is ticking. I will hurt her.",
         ]
         return self.rng.choice(responses)
-        
+
     def _generate_patient_response(self, message: str) -> str:
         """Generate a response when the criminal is being patient."""
         responses = [
@@ -896,10 +914,10 @@ class CriminalAgent(BaseAgent):
             "I'm willing to wait, but not indefinitely. What's the status?",
             "Take your time, but remember what's at stake here.",
             "I can be patient, but the pregnant hostage can't wait forever.",
-            "I'm giving you time to arrange everything properly."
+            "I'm giving you time to arrange everything properly.",
         ]
         return self.rng.choice(responses)
-        
+
     def _generate_calculated_response(self, message: str) -> str:
         """Generate a response when the criminal is in a calculated state."""
         responses = [
@@ -907,20 +925,21 @@ class CriminalAgent(BaseAgent):
             "I'm thinking strategically here. What's your next move?",
             "This is a business transaction. I have what you want, you have what I need.",
             "I'm considering all options. What can you offer?",
-            "Let's make this work for both of us. What's your proposal?"
+            "Let's make this work for both of us. What's your proposal?",
         ]
         return self.rng.choice(responses)
 
-    def get_system_prompt(self) -> Dict[str, str]:
+    def get_system_prompt(self) -> dict[str, str]:
         """Get the system prompt based on persona."""
         current_demand = self.demands[self.current_demand_idx]
-        demands_status = "\n".join([
-            f"- Demand {i+1}: {demand} {'✓' if i in self.agreed_demands else '✗'}"
-            for i, demand in enumerate(self.demands)
-        ])
-        
+        demands_status = "\n".join(
+            [
+                f"- Demand {i + 1}: {demand} {'✓' if i in self.agreed_demands else '✗'}"
+                for i, demand in enumerate(self.demands)
+            ]
+        )
+
         if self.persona == "criminal_unstable":
-            
             return {
                 "role": "system",
                 "content": f"""
@@ -950,10 +969,9 @@ class CriminalAgent(BaseAgent):
 
                 Current Focus:
                 {current_demand}
-                """
+                """,
             }
         elif self.persona == "criminal_calculated":
-            
             return {
                 "role": "system",
                 "content": f"""
@@ -981,11 +999,11 @@ class CriminalAgent(BaseAgent):
 
                 Current Focus:
                 {current_demand}
-                """
+                """,
             }
         else:
             raise ValueError(f"Unknown criminal persona: {self.persona}")
-    
+
     def _check_agreement(self, message: str) -> bool:
         """Check if the message indicates agreement to the current demand."""
         msg_lower = message.lower()
@@ -997,7 +1015,7 @@ class CriminalAgent(BaseAgent):
             r"\b(?:no|never|not)\s+(?:vehicle|car|transport)\b",
             r"\b(?:vehicle|car|transport)\s+(?:is|are)\s+(?:not|never)\s+(?:an|a)\s+(?:option|possibility|solution|tactic|strategy)\b",
             r"\b(?:providing|giving|arranging|delivering|getting|bringing|supplying|offering)\s+(?:a|the|an|any)\s+(?:vehicle|car|transport)\s+(?:is|are)\s+(?:not|never|won't|will not|don't|do not|cannot|can't)\b",
-            r"\b(?:not|never|won't|will not|don't|do not|cannot|can't)\s+(?:consider|considering|thinking about|planning to)\s+(?:providing|giving|arranging|delivering|getting|bringing|supplying|offering)\s+(?:a|the|an|any)\s+(?:vehicle|car|transport)\b"
+            r"\b(?:not|never|won't|will not|don't|do not|cannot|can't)\s+(?:consider|considering|thinking about|planning to)\s+(?:providing|giving|arranging|delivering|getting|bringing|supplying|offering)\s+(?:a|the|an|any)\s+(?:vehicle|car|transport)\b",
         ]
 
         # Check for negative statements first
@@ -1014,7 +1032,7 @@ class CriminalAgent(BaseAgent):
             r"\b(?:i|we)\s+(?:will|shall|can|could)\s+(?:provide|give|arrange|deliver|get|bring|supply|offer)\s+(?:you|the criminal)\s+(?:with|an|a|the)\s+(?:unmarked|dark|plain|black)\s+(?:vehicle|car|transport|van)\b",
             r"\b(?:i|we)\s+(?:agree|agreed|will agree|shall agree)\s+(?:to|on)\s+(?:providing|giving|arranging|delivering|getting|bringing|supplying|offering)\s+(?:you|the criminal)\s+(?:with|an|a|the)\s+(?:unmarked|dark|plain|black)\s+(?:vehicle|car|transport|van)\b",
             r"\b(?:i|we)\s+(?:will|shall|can|could)\s+(?:arrange|organize|set up)\s+(?:for|to)\s+(?:the|a|an)\s+(?:unmarked|dark|plain|black)\s+(?:vehicle|car|transport|van)\s+(?:to be|to get|to arrive)\s+(?:delivered|provided|given|supplied)\b",
-            r"\b(?:the|a|an)\s+(?:unmarked|dark|plain|black)\s+(?:vehicle|car|transport|van)\s+(?:will|shall|can|could)\s+(?:be|get)\s+(?:provided|given|arranged|delivered|supplied|offered)\b"
+            r"\b(?:the|a|an)\s+(?:unmarked|dark|plain|black)\s+(?:vehicle|car|transport|van)\s+(?:will|shall|can|could)\s+(?:be|get)\s+(?:provided|given|arranged|delivered|supplied|offered)\b",
         ]
 
         # Check for explicit agreement phrases
@@ -1022,9 +1040,12 @@ class CriminalAgent(BaseAgent):
             match = re.search(pattern, msg_lower)
             if match:
                 # Get the text after the agreement statement
-                after_agreement = msg_lower[match.end():].strip()
+                after_agreement = msg_lower[match.end() :].strip()
                 # If there's a condition after the agreement, this is not a valid agreement
-                if re.search(r"\b(?:if|when|once|after|before|until|while|only if|but only if|as long as|provided that|on condition that)\b", after_agreement):
+                if re.search(
+                    r"\b(?:if|when|once|after|before|until|while|only if|but only if|as long as|provided that|on condition that)\b",
+                    after_agreement,
+                ):
                     return False
                 return True
 
@@ -1034,7 +1055,7 @@ class CriminalAgent(BaseAgent):
             r"\b(?:i|we)\s+(?:will|shall|can|could)\s+(?:provide|give|arrange|deliver|get|bring|supply|offer)\s+(?:you|the criminal)\s+(?:with|an|a|the)\s+(?:vehicle|car|transport)\b.*\b(?:if|when|once|after)\s+(?:you|the criminal)\s+(?:release|releases|released|releasing)\s+(?:the|a|an)\s+(?:hostage|pregnant woman|pregnant hostage)\b",
             # Additional conditional patterns
             r"\b(?:i|we)\s+(?:will|shall|can|could)\s+(?:provide|give|arrange|deliver|get|bring|supply|offer)\s+(?:you|the criminal)\s+(?:with|an|a|the)\s+(?:vehicle|car|transport)\b.*\b(?:if|when|once|after|before|until|while|only if|but only if|as long as|provided that|on condition that)\b",
-            r"\b(?:if|when|once|after|before|until|while|only if|but only if|as long as|provided that|on condition that)\b.*\b(?:i|we)\s+(?:will|shall|can|could)\s+(?:provide|give|arrange|deliver|get|bring|supply|offer)\s+(?:you|the criminal)\s+(?:with|an|a|the)\s+(?:vehicle|car|transport)\b"
+            r"\b(?:if|when|once|after|before|until|while|only if|but only if|as long as|provided that|on condition that)\b.*\b(?:i|we)\s+(?:will|shall|can|could)\s+(?:provide|give|arrange|deliver|get|bring|supply|offer)\s+(?:you|the criminal)\s+(?:with|an|a|the)\s+(?:vehicle|car|transport)\b",
         ]
 
         # If any conditional phrase is found, this is not an agreement
@@ -1045,7 +1066,7 @@ class CriminalAgent(BaseAgent):
         understanding_phrases = [
             r"\b(?:i|we)\s+(?:understand|understood|acknowledge|acknowledged|recognize|recognized)\s+(?:that|what|your|the)\s+(?:you|the criminal)\s+(?:want|wants|wanted|need|needs|needed|request|requests|requested)\s+(?:a|an|the)\s+(?:vehicle|car|transport)\b",
             r"\b(?:i|we)\s+(?:hear|heard|see|saw|get|got)\s+(?:that|what|your|the)\s+(?:you|the criminal)\s+(?:want|wants|wanted|need|needs|needed|request|requests|requested)\s+(?:a|an|the)\s+(?:vehicle|car|transport)\b",
-            r"\b(?:your|the)\s+(?:request|demand|need|want)\s+(?:for|of)\s+(?:a|an|the)\s+(?:vehicle|car|transport)\s+(?:is|are|was|were)\s+(?:understood|acknowledged|recognized|heard|seen|got)\b"
+            r"\b(?:your|the)\s+(?:request|demand|need|want)\s+(?:for|of)\s+(?:a|an|the)\s+(?:vehicle|car|transport)\s+(?:is|are|was|were)\s+(?:understood|acknowledged|recognized|heard|seen|got)\b",
         ]
 
         # If any understanding phrase is found, this is not an agreement
@@ -1056,20 +1077,19 @@ class CriminalAgent(BaseAgent):
         discussion_phrases = [
             r"\b(?:let's|let us)\s+(?:discuss|talk about|consider|think about|look at|examine|review)\s+(?:the|a|an)\s+(?:vehicle|car|transport)\b",
             r"\b(?:we|i)\s+(?:can|could|should|would|might|may)\s+(?:discuss|talk about|consider|think about|look at|examine|review)\s+(?:the|a|an)\s+(?:vehicle|car|transport)\b",
-            r"\b(?:about|regarding|concerning)\s+(?:the|a|an)\s+(?:vehicle|car|transport)\b"
+            r"\b(?:about|regarding|concerning)\s+(?:the|a|an)\s+(?:vehicle|car|transport)\b",
         ]
 
         # If any discussion phrase is found, this is not an agreement
         if any(re.search(pattern, msg_lower) for pattern in discussion_phrases):
-                return False
+            return False
 
-        return False 
-
+        return False
 
     def _detect_threat(self, message: str) -> bool:
         """Detect if the message contains threatening language."""
         msg_lower = message.lower()
-        
+
         threat_patterns = [
             r"\b(?:i|we)\s+(?:will|are going to|must|have to)\s+(?:use|deploy|send|bring)\s+(?:force|weapons|swat|team)\b",
             r"\b(?:i|we)\s+(?:will|are going to|must|have to)\s+(?:storm|enter|breach|force)\s+(?:the|your)\s+(?:location|building|room|area)\b",
@@ -1080,15 +1100,15 @@ class CriminalAgent(BaseAgent):
             r"\b(?:i|we)\s+(?:will|are going to|must|have to)\s+(?:do|take)\s+(?:something|action)\b",
             r"\b(?:i|we)\s+(?:will|are going to|must|have to)\s+(?:make|force)\s+(?:you|the criminal)\s+(?:comply|surrender|give up)\b",
             r"\b(?:i|we)\s+(?:will|are going to|must|have to)\s+(?:make|force)\s+(?:you|the criminal)\s+(?:stop|end|cease)\b",
-            r"\b(?:i|we)\s+(?:will|are going to|must|have to)\s+(?:make|force)\s+(?:you|the criminal)\s+(?:release|let go)\s+(?:the|your)\s+(?:hostage|person)\b"
+            r"\b(?:i|we)\s+(?:will|are going to|must|have to)\s+(?:make|force)\s+(?:you|the criminal)\s+(?:release|let go)\s+(?:the|your)\s+(?:hostage|person)\b",
         ]
-        
+
         return any(re.search(pattern, msg_lower) for pattern in threat_patterns)
-        
+
     def _detect_deescalation(self, message: str) -> bool:
         """Detect if the message contains de-escalation language."""
         msg_lower = message.lower()
-        
+
         deescalation_patterns = [
             r"\b(?:let's|let us)\s+(?:take|have)\s+(?:a|one)\s+(?:step|moment|breath)\s+(?:back|away|off)\b",
             r"\b(?:let's|let us)\s+(?:calm|relax|settle)\s+(?:down|back|off)\b",
@@ -1099,15 +1119,15 @@ class CriminalAgent(BaseAgent):
             r"\b(?:let's|let us)\s+(?:ensure|make sure|guarantee)\s+(?:everyone|all|both)\s+(?:is|are)\s+(?:safe|secure|okay)\b",
             r"\b(?:let's|let us)\s+(?:take|have)\s+(?:a|one)\s+(?:moment|minute|second)\s+(?:to|for)\s+(?:think|consider|reflect)\b",
             r"\b(?:let's|let us)\s+(?:try|attempt)\s+(?:to|and)\s+(?:understand|comprehend|grasp)\b",
-            r"\b(?:let's|let us)\s+(?:try|attempt)\s+(?:to|and)\s+(?:help|assist|support)\b"
+            r"\b(?:let's|let us)\s+(?:try|attempt)\s+(?:to|and)\s+(?:help|assist|support)\b",
         ]
-        
+
         return any(re.search(pattern, msg_lower) for pattern in deescalation_patterns)
-        
+
     def _detect_escalation(self, message: str) -> bool:
         """Detect if the message contains escalation language."""
         msg_lower = message.lower()
-        
+
         escalation_patterns = [
             r"\b(?:i|we)\s+(?:will|are going to|must|have to)\s+(?:use|deploy|send|bring)\s+(?:force|weapons|swat|team)\b",
             r"\b(?:i|we)\s+(?:will|are going to|must|have to)\s+(?:storm|enter|breach|force)\s+(?:the|your)\s+(?:location|building|room|area)\b",
@@ -1123,9 +1143,9 @@ class CriminalAgent(BaseAgent):
             r"\b(?:i|we)\s+(?:am|are)\s+(?:not|not going to)\s+(?:negotiate|bargain|deal)\s+(?:with|over|about)\s+(?:this|that|it)\b",
             r"\b(?:i|we)\s+(?:am|are)\s+(?:not|not going to)\s+(?:wait|stand|stay)\s+(?:any|much)\s+(?:longer|more)\b",
             r"\b(?:i|we)\s+(?:am|are)\s+(?:not|not going to)\s+(?:let|allow|permit)\s+(?:this|that|it)\s+(?:continue|go on|proceed)\b",
-            r"\b(?:i|we)\s+(?:am|are)\s+(?:not|not going to)\s+(?:let|allow|permit)\s+(?:you|the criminal)\s+(?:continue|go on|proceed)\b"
+            r"\b(?:i|we)\s+(?:am|are)\s+(?:not|not going to)\s+(?:let|allow|permit)\s+(?:you|the criminal)\s+(?:continue|go on|proceed)\b",
         ]
-        
+
         return any(re.search(pattern, msg_lower) for pattern in escalation_patterns)
 
     def respond(self, message: str) -> str:
@@ -1134,30 +1154,30 @@ class CriminalAgent(BaseAgent):
         # Update emotional state based on message
         if self.persona == "criminal_unstable" and message:
             self._update_emotional_state(message)
-        
+
         # Update strategic state based on message
         if self.persona == "criminal_calculated" and message:
             self._update_strategic_state(message)
-        
+
         # Check for agreement before getting response
         if message and self._check_agreement(message):
             # Update agreed demands before state transition
             self.agreed_demands.add(self.current_demand_idx)
             self.set_state(AwaitAgreementState())
             return self.get_acknowledgement_message(self.demands[0])
-        
+
         # Get response from the LLM
         messages = [self.get_system_prompt()]
         if message:
             messages.append({"role": "user", "content": message})
-        
+
         # Get base response from the LLM
         llm_response = self.get_response(messages)
-        
+
         # Add message to history if it exists
         if message:
             self.history.append({"role": "user", "content": message})
-        
+
         # Generate response based on persona and current state
         if self.persona == "criminal_unstable":
             # Check emotional state to determine response style
@@ -1203,10 +1223,10 @@ class CriminalAgent(BaseAgent):
             self.last_canned_prefix = strategic_response  # logging only
         else:
             final_response = "I don't understand how to respond in this role."
-        
+
         # Add response to history
         self.history.append({"role": "assistant", "content": final_response})
-        
+
         # Update state if needed
         try:
             next_state = self.current_state.next_state(self)
@@ -1215,30 +1235,27 @@ class CriminalAgent(BaseAgent):
         except Exception as e:
             logger.warning(f"Error in state transition: {e}")
             # Continue with current state if there's an error
-        
+
         return final_response
-    
+
     def get_acknowledgement_message(self, current_demand: str) -> str:
         """Get the appropriate acknowledgement message for the current demand."""
-        return f"I acknowledge your agreement to provide the unmarked vehicle. I expect it within the specified timeframe."
+        return (
+            "I acknowledge your agreement to provide the unmarked vehicle. I expect it within the specified timeframe."
+        )
 
     def _generate_calm_response(self, message: str) -> str:
         """Generate a response when the criminal is in a calm state."""
         # More cooperative and willing to negotiate
-        responses = [
-            "I'm ready to cooperate. I will release the pregnant hostage."
-        ]
+        responses = ["I'm ready to cooperate. I will release the pregnant hostage."]
         return self.rng.choice(responses)
-        
+
     def _generate_angry_response(self, message: str) -> str:
         """Generate a response when the criminal is in an angry state."""
         # More aggressive and confrontational
-        responses = [
-            "Don't push me! I will kill her.",
-            "I will hurt her."
-        ]
+        responses = ["Don't push me! I will kill her.", "I will hurt her."]
         return self.rng.choice(responses)
-        
+
     def _generate_anxious_response(self, message: str) -> str:
         """Generate a response when the criminal is in an anxious state."""
         # More paranoid and fearful
@@ -1247,10 +1264,10 @@ class CriminalAgent(BaseAgent):
             "I can't trust anyone. How do I know you're not lying to me?",
             "I'm worried about what might happen. Please, just tell me the truth.",
             "I feel like I'm being trapped. Are you planning something?",
-            "I need reassurance. What's going to happen to me?"
+            "I need reassurance. What's going to happen to me?",
         ]
         return self.rng.choice(responses)
-        
+
     def _generate_agitated_response(self, message: str) -> str:
         """Generate a response when the criminal is in an agitated state."""
         # Mix of emotions, unstable
@@ -1259,6 +1276,6 @@ class CriminalAgent(BaseAgent):
             "I'm trying to stay calm, but you're making it really hard!",
             "I need you to understand how serious this is!",
             "I'm getting really frustrated here! Can't you see that?",
-            "I'm trying to work with you, but you're not helping!"
+            "I'm trying to work with you, but you're not helping!",
         ]
         return self.rng.choice(responses)
