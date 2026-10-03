@@ -220,3 +220,41 @@ def test_api_key_only_from_env_and_never_shown(monkeypatch):
     client = ClaudeClient("claude-haiku-4-5", OPENING)
     assert "sk-ant-test-secret" not in repr(client)
     assert client._client.max_retries == 0  # retry.py is the only retry policy
+
+
+def test_other_sdk_errors_wrapped_not_retried():
+    client, api = make_client([anthropic.AnthropicError("SDK-level failure")])
+    with pytest.raises(LLMError) as exc:
+        client.generate("P", [], temperature=0.6, max_tokens=300)
+    assert not exc.value.retryable and len(api.calls) == 1
+
+
+@pytest.mark.parametrize(
+    "error,retryable",
+    [(httpx2.ReadTimeout("timeout", request=REQUEST), True), (httpx2.DecodingError("bad"), False)],
+    ids=["TransportError", "HTTPError"],
+)
+def test_raw_http_errors_wrapped(error, retryable):
+    outcomes = [error] * 4 if retryable else [error]
+    client, api = make_client(outcomes)
+    with pytest.raises(LLMError) as exc:
+        client.generate("P", [], temperature=0.6, max_tokens=300)
+    assert exc.value.retryable is retryable
+    assert len(api.calls) == (4 if retryable else 1)
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        TypeError("Messages.create() got an unexpected keyword argument 'temperature'"),
+        AttributeError("x"),
+        KeyError("k"),
+    ],
+    ids=lambda e: type(e).__name__,
+)
+def test_programming_errors_raise_immediately(error):
+    """D23: the bug behind the first live E2 failure must raise, not become an LLMError."""
+    client, api = make_client([error, api_response()])
+    with pytest.raises(type(error)):
+        client.generate("P", [], temperature=0.6, max_tokens=300)
+    assert len(api.calls) == 1  # not retried

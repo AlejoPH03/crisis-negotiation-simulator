@@ -96,3 +96,36 @@ def test_retry_then_success(monkeypatch):
     monkeypatch.setattr(ollama, "chat", flaky)
     resp = make_client().generate("SYS", [], temperature=0.6, max_tokens=150)
     assert (resp.text, resp.attempts) == ("ok", 2)
+
+
+@pytest.mark.parametrize(
+    "error,retryable",
+    [
+        (ollama.RequestError("must provide a model"), False),
+        (httpx.HTTPStatusError("418", request=httpx.Request("POST", "http://x"), response=httpx.Response(418)), False),
+    ],
+    ids=["RequestError", "HTTPStatusError"],
+)
+def test_other_sdk_and_http_errors_wrapped_not_retried(monkeypatch, error, retryable):
+    def boom(**kw):
+        raise error
+
+    monkeypatch.setattr(ollama, "chat", boom)
+    with pytest.raises(LLMError) as exc:
+        make_client().generate("SYS", [], temperature=0.6, max_tokens=150)
+    assert exc.value.retryable is retryable
+
+
+@pytest.mark.parametrize("error", [TypeError("chat() got an unexpected keyword 'x'"), KeyError("k"), ValueError()])
+def test_programming_errors_raise_immediately(monkeypatch, error):
+    """D23: only SDK, HTTP and connection errors become LLMError; bugs are not retried or wrapped."""
+    calls = []
+
+    def boom(**kw):
+        calls.append(1)
+        raise error
+
+    monkeypatch.setattr(ollama, "chat", boom)
+    with pytest.raises(type(error)):
+        make_client().generate("SYS", [], temperature=0.6, max_tokens=150)
+    assert len(calls) == 1

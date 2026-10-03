@@ -8,6 +8,7 @@ from collections.abc import Callable
 from typing import Any
 
 import anthropic
+import httpx2
 
 from .base import LLMError, LLMResponse
 from .retry import RetryPolicy, call_with_retries
@@ -24,6 +25,10 @@ def _retry_after(e: anthropic.APIStatusError) -> float | None:
         return None
 
 
+# Only these become LLMError (D23). Anything else (TypeError, AttributeError, ...) is a bug and raises unchanged.
+WRAPPED_ERRORS = (anthropic.AnthropicError, httpx2.HTTPError)
+
+
 def _to_llm_error(e: Exception) -> LLMError:
     if isinstance(e, anthropic.APIStatusError):
         status = e.status_code
@@ -33,7 +38,7 @@ def _to_llm_error(e: Exception) -> LLMError:
             retryable=retryable,
             retry_after_s=_retry_after(e) if retryable else None,
         )
-    if isinstance(e, anthropic.APIConnectionError):  # includes APITimeoutError
+    if isinstance(e, (anthropic.APIConnectionError, httpx2.TransportError)):  # includes timeouts
         return LLMError(f"Anthropic connection error ({type(e).__name__})", retryable=True)
     return LLMError(f"Anthropic call failed: {type(e).__name__}: {e}", retryable=False)
 
@@ -110,7 +115,7 @@ class ClaudeClient:
                     # field for Haiku 4.5 / Sonnet 4.6, so it goes in the request body (FR-8, D21).
                     extra_body={"temperature": temperature},
                 )
-            except Exception as e:
+            except WRAPPED_ERRORS as e:
                 raise _to_llm_error(e) from e
             return response, time.perf_counter() - start
 

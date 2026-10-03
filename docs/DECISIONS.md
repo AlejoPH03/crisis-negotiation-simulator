@@ -26,7 +26,7 @@ Every place where the spec was ambiguous, conflicted with the code, or needed a 
 - Rate-limit (429), 408/409, server errors (5xx, including 529 overloaded) and connection/timeout errors are retried with exponential backoff and jitter (config `retry`), and the `retry-after` header is honoured. Other 4xx errors are not retried.
 - The Anthropic SDK's built-in retries are turned off (`max_retries=0`), so one logged retry policy applies to both backends.
 - After `run.max_consecutive_failures` (3) consecutive failed runs, the experiment stops (`stopped_reason: max_consecutive_failures`). This stops an outage or a bad API key from burning through the whole grid.
-- Programming errors (any exception that is not `LLMError` or `BudgetExceeded`) are not caught. They crash the runner after the earlier records have already been flushed to `runs.jsonl`.
+- Programming errors (any exception that is not `LLMError` or `BudgetExceeded`) are not caught. They crash the runner after the earlier records have already been flushed to `runs.jsonl`. Until D23, the clients themselves wrapped every exception, so this rule only held outside the clients.
 - A perplexity failure is logged as `perplexity: null` plus `perplexity_error`, instead of v0's `float('inf')`, which is not valid JSON.
 
 **D8. `print` became `logging`; no logic changed.** The state-transition `try/except` in `FBIAgent.respond` and `CriminalAgent.respond` is kept (it is game logic, not the LLM path) and now logs a warning. The GPT-2 model in `metrics.py` loads on first use instead of at import. The perplexity computation itself (whole transcript, 512-token truncation) is unchanged.
@@ -72,9 +72,23 @@ As a sanity check, changing one threshold or one canned line makes the test fail
 - **New tests:** one runs the real SDK's request building through a mock HTTP transport (no network) and checks the JSON body. Another runs a full E2 experiment through that path and checks cost.
 - **Pin:** `requirements.txt` pins `anthropic>=1.11.0,<2`.
 - **Note:** models that reject non-default sampling (Opus 4.7 and later, Sonnet 5 and 5.5) would return a 400 error here. E5's model choice must account for this (see D19).
-- **How the failure was logged:** the `TypeError` happened inside the client, whose catch-all turns any exception into a non-retryable `LLMError`. So the runs were logged as `failed` and the experiment stopped after 3, rather than crashing. That contradicts D7's "programming errors are not caught". **Open question for the owner:** should the clients wrap only SDK and transport errors?
+- **How the failure was logged:** the `TypeError` happened inside the client, whose catch-all turns any exception into a non-retryable `LLMError`. So the runs were logged as `failed` and the experiment stopped after 3, rather than crashing. That contradicts D7's "programming errors are not caught". The owner decided the clients should wrap only SDK and transport errors; see D23.
 
 **D22. Cost reporting fix.** After that failed run, the summary said "Cost: n/a (no prices for this model)" although `claude-haiku-4-5` is priced. The price lookup was not at fault: costs are keyed by the configured model ID, and a test now confirms that the dated ID returned by the API (`claude-haiku-4-5-20251001`) does not affect it. The cause was that `cost_usd` was set to `null` whenever a run made no completed calls, and the CLI printed every `null` as "no prices". Now a run on a priced model reports the sum of its call costs, which is `0.0` when no call completed. `null` means only that the model has no price (Ollama, or a dry run).
+
+**D23. Clients wrap only SDK, HTTP and connection errors** (owner decision, 2026-10-03; closes the question in D21). Both clients now catch a fixed list of exceptions and turn those into `LLMError`, with the same retry rules as before:
+- **`OllamaClient`:**
+  - `ollama.ResponseError`: retried on 429 and 5xx, not on other statuses.
+  - The built-in `ConnectionError` (what ollama raises when the server is unreachable) and `httpx.TransportError`: retried.
+  - `ollama.RequestError` and other `httpx.HTTPError`: not retried.
+- **`ClaudeClient`:**
+  - `anthropic.APIStatusError`: retried on 408, 409, 429 and 5xx, honouring `retry-after`; not on other statuses.
+  - `anthropic.APIConnectionError` and timeouts: retried. Raw `httpx2.TransportError` is also retried; before, it was not.
+  - Any other `anthropic.AnthropicError` and `httpx2.HTTPError`: not retried.
+
+Every other exception (`TypeError`, `AttributeError`, `KeyError` and so on) is a bug. It is not retried, it does not become a `failed` run, and it raises out of the experiment, so D7's rule now holds inside the clients too. The bug in D21 would now have stopped the first run with a traceback, instead of writing three `failed` records.
+- **Tests:** in each client, a `TypeError`, `AttributeError`, `KeyError` or `ValueError` raises unchanged, after one call. A full E1 or E2 experiment whose client raises a `TypeError` exits with that `TypeError` and writes no `failed` record. Other SDK and HTTP errors are still wrapped, with the retry rules above.
+- **Unchanged:** a missing message content in an Ollama response is still a deliberate non-retryable `LLMError` (D7). The equivalence test against v0 (566 cases) still passes.
 
 ## Milestone 0: smoke test (E0)
 

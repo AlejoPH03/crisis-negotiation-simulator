@@ -207,3 +207,41 @@ def test_dry_run_uses_mock_and_skips_perplexity(tmp_path, monkeypatch):
     assert all(r["status"] == "completed" and r["perplexity"] is None for r in result.records)
     assert all(r["model"].endswith("(dry-run)") and r["cost_usd"] is None for r in result.records)
     assert "src.metrics" not in sys.modules  # GPT-2 never loaded
+
+
+def test_type_error_in_claude_client_crashes_run_instead_of_failed_record(tmp_path):
+    """D23: a programming error in a client raises out of the experiment; no 'failed' record is written."""
+    from types import SimpleNamespace
+
+    from src.llm.claude_client import ClaudeClient
+    from src.llm.retry import RetryPolicy
+
+    class BrokenMessages:
+        calls = 0
+
+        def create(self, **kwargs):
+            BrokenMessages.calls += 1
+            raise TypeError("Messages.create() got an unexpected keyword argument 'temperature'")
+
+    def factory(model):
+        sdk = SimpleNamespace(messages=BrokenMessages())
+        return ClaudeClient(model, "(open)", retry=RetryPolicy(max_retries=3, base_delay_s=0), client=sdk)
+
+    with pytest.raises(TypeError, match="temperature"):
+        run_experiment(cfg("e2_haiku.yaml"), client_factory=factory, out_dir=tmp_path, perplexity_fn=None)
+    assert BrokenMessages.calls == 1
+    assert read_jsonl(tmp_path / "runs.jsonl") == []
+
+
+def test_type_error_in_ollama_client_crashes_run(tmp_path, monkeypatch):
+    import ollama
+
+    from src.llm.ollama_client import OllamaClient
+
+    def broken_chat(**kwargs):
+        raise TypeError("chat() got an unexpected keyword argument 'x'")
+
+    monkeypatch.setattr(ollama, "chat", broken_chat)
+    with pytest.raises(TypeError):
+        run_experiment(cfg(), client_factory=lambda m: OllamaClient(m), out_dir=tmp_path, perplexity_fn=None)
+    assert read_jsonl(tmp_path / "runs.jsonl") == []

@@ -12,6 +12,10 @@ import ollama
 from .base import LLMError, LLMResponse
 from .retry import RetryPolicy, call_with_retries
 
+# Only these become LLMError (D23). Anything else is a bug and raises unchanged.
+# ollama raises the built-in ConnectionError when it cannot reach the server.
+WRAPPED_ERRORS = (ollama.ResponseError, ollama.RequestError, ConnectionError, httpx.HTTPError)
+
 
 def _to_llm_error(e: Exception) -> LLMError:
     if isinstance(e, ollama.ResponseError):
@@ -65,7 +69,7 @@ class OllamaClient:
             start = time.perf_counter()
             try:
                 response = ollama.chat(model=self.model, messages=chat_messages, options=options)
-            except Exception as e:
+            except WRAPPED_ERRORS as e:
                 raise _to_llm_error(e) from e
             return response, time.perf_counter() - start
 
