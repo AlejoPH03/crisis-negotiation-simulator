@@ -309,12 +309,15 @@ def run_experiment(
     perplexity_fn: Any = DEFAULT,
     dry_run: bool = False,
 ) -> ExperimentResult:
-    """Run the full 2x2x2 grid, runs_per_configuration times each."""
+    """Run the full 2x2x2 grid, runs_per_configuration times each.
+
+    A dry run uses canned mock replies and skips perplexity (no GPT-2 download).
+    """
     factory = client_factory or (lambda model: build_client(config, model, dry_run))
     return execute_runs(
         config,
         experiment_grid(config),
         out_dir=Path(out_dir) if out_dir is not None else make_out_dir(config, dry_run),
         client_factory=factory,
-        perplexity_fn=perplexity_fn,
+        perplexity_fn=None if dry_run else perplexity_fn,
     )

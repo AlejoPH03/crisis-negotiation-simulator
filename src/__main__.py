@@ -54,7 +54,7 @@ def cmd_negotiate(args: argparse.Namespace) -> int:
         starts_with=args.starts_with or config.game.starts_with[0],
         trial=1,
     )
-    if args.no_perplexity:
+    if args.no_perplexity or args.dry_run:
         config.run.compute_perplexity = False
     if not _confirm_paid(config, 1, [config.llm.model], args):
         print("Cancelled.")

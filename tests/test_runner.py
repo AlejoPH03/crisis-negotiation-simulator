@@ -197,3 +197,13 @@ def test_usage_none_tolerated(tmp_path):
     )
     rec = read_jsonl(tmp_path / "runs.jsonl")[0]
     assert rec["status"] == "completed" and rec["tokens"] == {"input": 0, "output": 0}
+
+
+def test_dry_run_uses_mock_and_skips_perplexity(tmp_path, monkeypatch):
+    import sys
+
+    monkeypatch.delitem(sys.modules, "src.metrics", raising=False)
+    result = run_experiment(cfg(runs=1), out_dir=tmp_path, dry_run=True)
+    assert all(r["status"] == "completed" and r["perplexity"] is None for r in result.records)
+    assert all(r["model"].endswith("(dry-run)") and r["cost_usd"] is None for r in result.records)
+    assert "src.metrics" not in sys.modules  # GPT-2 never loaded
