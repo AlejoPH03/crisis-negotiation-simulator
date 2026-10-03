@@ -149,6 +149,8 @@ def run_single(
     llm_calls = [{"turn": t["turn"], "speaker": t["speaker"], **c} for t in trace for c in t["llm_calls"]]
     costs = [tracker.cost(c["model"], c["input_tokens"], c["output_tokens"]) for c in llm_calls]
     priced = [c for c in costs if c is not None]
+    # A priced model with no completed calls cost $0; only an unpriced model's cost is unknown.
+    model_priced = llm.model in tracker.pricing
 
     perplexity = perplexity_error = None
     if result is not None and perplexity_fn is not None:
@@ -192,7 +194,7 @@ def run_single(
             "input": sum(c["input_tokens"] or 0 for c in llm_calls),
             "output": sum(c["output_tokens"] or 0 for c in llm_calls),
         },
-        "cost_usd": sum(priced) if priced else None,
+        "cost_usd": sum(priced) if (priced or model_priced) else None,
         "environment": environment_info(),
         "timestamp": datetime.now().isoformat(timespec="seconds"),
     }

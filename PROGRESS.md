@@ -15,3 +15,4 @@ Milestones from `docs/SPEC.md`. A milestone is done only when its tests **and** 
 ## Log
 
 - **2026-10-03.** Milestones 0–2 implemented and verified with mocks only (no Ollama or Anthropic calls). Decisions D1–D20 are in `docs/DECISIONS.md`. Next: the owner runs E0, E1 and E2 live, then reviews the E0 flags.
+- **2026-10-03.** The first live E2 attempt failed: `anthropic` 1.x removed the `temperature` keyword. Fixed by sending temperature through `extra_body` (D21). The fake SDK now enforces the real signature, and a misleading cost message was fixed (D22). E2 needs to be rerun.

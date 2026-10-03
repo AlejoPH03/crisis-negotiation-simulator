@@ -69,3 +69,53 @@ def test_runner_stops_at_cap(tmp_path):
     assert summary["stopped_reason"] == "budget_cap"
     assert summary["cost_usd"] == pytest.approx(total)
     assert len(records) < 80
+
+
+def read_records(path):
+    return [json.loads(line) for line in (path / "runs.jsonl").read_text(encoding="utf-8").splitlines()]
+
+
+def test_priced_model_with_no_calls_costs_zero_not_unknown(tmp_path):
+    """All runs failed before any call: cost is $0, not 'no prices for this model'."""
+    from src.llm.mock import FailingLLMClient
+
+    config = load_config(CONFIGS / "e2_haiku.yaml")
+    result = run_experiment(
+        config,
+        client_factory=lambda m: FailingLLMClient(retryable=False, attempts=1, model=m),
+        out_dir=tmp_path,
+        perplexity_fn=None,
+    )
+    records = read_records(tmp_path)
+    assert result.stopped_reason == "max_consecutive_failures"
+    assert all(r["status"] == "failed" and r["cost_usd"] == 0.0 for r in records)
+    assert result.summary["cost_usd"] == 0.0
+
+
+def test_unpriced_model_cost_stays_unknown(tmp_path):
+    config = load_config(CONFIGS / "e1_gemma.yaml")
+    config.run.runs_per_configuration = 1
+    factory = lambda m: MockLLMClient(ScriptedResponder(HAND_SCRIPTS["no_concession"]), model=m)  # noqa: E731
+    result = run_experiment(config, client_factory=factory, out_dir=tmp_path, perplexity_fn=None)
+    assert all(r["cost_usd"] is None for r in result.records)
+    assert result.summary["cost_usd"] is None
+
+
+def test_e2_cost_through_real_sdk_uses_configured_model_price(tmp_path):
+    """Real SDK request/response path (mock transport, no network): the API's dated model id
+    must not break the price lookup."""
+    from test_claude_client import RecordingTransport, real_sdk_client
+
+    config = load_config(CONFIGS / "e2_haiku.yaml")
+    config.run.runs_per_configuration = 1
+    transport = RecordingTransport(api_model="claude-haiku-4-5-20251001")
+    result = run_experiment(
+        config, client_factory=lambda m: real_sdk_client(transport, m), out_dir=tmp_path, perplexity_fn=None
+    )
+    records = read_records(tmp_path)
+    assert all(r["status"] == "completed" for r in records)
+    assert all(body["temperature"] == 0.6 and body["max_tokens"] == 300 for body in transport.bodies)
+    n_calls = sum(len(r["llm_calls"]) for r in records)
+    expected = n_calls * (512 / 1e6 * 1.0 + 9 / 1e6 * 5.0)
+    assert result.summary["cost_usd"] == pytest.approx(expected)
+    assert all(r["cost_usd"] > 0 for r in records)

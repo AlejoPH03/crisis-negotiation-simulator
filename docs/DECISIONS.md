@@ -67,6 +67,15 @@ As a sanity check, changing one threshold or one canned line makes the test fail
 
 **D17. Paid runs ask first.** `experiment`, `negotiate` and `smoke` on the Claude backend show the run count, models and cap, and wait for `y` before starting. `--yes` skips the prompt and `--dry-run` never calls any backend.
 
+**D21. Temperature is sent through `extra_body` (2026-10-03, after the first live E2 attempt).** The live E2 run failed on every call with `TypeError: Messages.create() got an unexpected keyword argument 'temperature'`. The installed `anthropic` 1.11.0 removed `temperature`, `top_p` and `top_k` from the `messages.create()` signature (confirmed with `inspect.signature`). They are gone from the SDK, not from the API: Haiku 4.5 and Sonnet 4.6 still accept `temperature`. To keep FR-8 (temperature 0.6 in every condition), `ClaudeClient` now sends `extra_body={"temperature": temperature}`, which the SDK merges into the request JSON as a top-level `temperature` field. Nothing else about the request changed.
+- **Why the mocked tests missed it:** the fake SDK accepted any keyword. It now binds every call to the installed `Messages.create` signature, so an unsupported keyword fails the test the same way the SDK does.
+- **New tests:** one runs the real SDK's request building through a mock HTTP transport (no network) and checks the JSON body. Another runs a full E2 experiment through that path and checks cost.
+- **Pin:** `requirements.txt` pins `anthropic>=1.11.0,<2`.
+- **Note:** models that reject non-default sampling (Opus 4.7 and later, Sonnet 5 and 5.5) would return a 400 error here. E5's model choice must account for this (see D19).
+- **How the failure was logged:** the `TypeError` happened inside the client, whose catch-all turns any exception into a non-retryable `LLMError`. So the runs were logged as `failed` and the experiment stopped after 3, rather than crashing. That contradicts D7's "programming errors are not caught". **Open question for the owner:** should the clients wrap only SDK and transport errors?
+
+**D22. Cost reporting fix.** After that failed run, the summary said "Cost: n/a (no prices for this model)" although `claude-haiku-4-5` is priced. The price lookup was not at fault: costs are keyed by the configured model ID, and a test now confirms that the dated ID returned by the API (`claude-haiku-4-5-20251001`) does not affect it. The cause was that `cost_usd` was set to `null` whenever a run made no completed calls, and the CLI printed every `null` as "no prices". Now a run on a priced model reports the sum of its call costs, which is `0.0` when no call completed. `null` means only that the model has no price (Ollama, or a dry run).
+
 ## Milestone 0: smoke test (E0)
 
 **D18. E0 design** (agreed). The spec table lists E0 as "Memory: Full, detection n/a". The owner chose to run the **E2 pipeline** (last-message memory, regex detectors, canned lines) on two models instead.

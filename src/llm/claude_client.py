@@ -105,8 +105,10 @@ class ClaudeClient:
                     model=self.model,
                     system=system,
                     messages=api_messages,
-                    temperature=temperature,
                     max_tokens=max_tokens,
+                    # anthropic SDK 1.x removed the temperature keyword; the API still accepts the
+                    # field for Haiku 4.5 / Sonnet 4.6, so it goes in the request body (FR-8, D21).
+                    extra_body={"temperature": temperature},
                 )
             except Exception as e:
                 raise _to_llm_error(e) from e

@@ -1,6 +1,6 @@
 # Python 3.12. Install into the repo's virtual environment:
 #   python -m venv .venv && .venv\Scripts\activate && pip install -r requirements.txt
-anthropic==1.11.0
+anthropic>=1.11.0,<2  # 1.x API: no temperature keyword in messages.create (D21)
 ollama==0.4.8
 httpx==0.28.1        # used by ollama; its transport errors are mapped to retryable errors
 PyYAML==6.0.3
