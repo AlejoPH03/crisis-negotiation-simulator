@@ -1,34 +1,21 @@
 """
 Agent implementations for the negotiation simulation.
 
-Game logic is unchanged from v0-university (see docs/DECISIONS.md). Changes:
-the LLM client and the canned-line RNG are injected, LLM errors propagate
-instead of becoming dialogue, prints are logging calls, and the raw LLM text
-and canned prefix of each turn are kept for logging.
 """
 
-import logging
-import random
-import re
+from typing import List, Dict, Optional
+import ollama
 from collections import deque
-from typing import Dict, List, Optional
-
-from .llm.base import GenerationSettings, LLMClient, LLMResponse
-from .states import AwaitAgreementState, BaseState, EndState, InitializationState, NegotiateState
-from .utils import detect_agreement
-
-logger = logging.getLogger(__name__)
+import re
+import random
+from states import BaseState, InitializationState, EndState, AwaitAgreementState, NegotiateState
+from utils import detect_agreement
 
 class BaseAgent:
     """Base class for all negotiation agents."""
-
-    def __init__(self, llm: LLMClient, generation: GenerationSettings, rng: Optional[random.Random] = None):
-        self.llm = llm
-        self.generation = generation
-        self.rng = rng if rng is not None else random.Random()
-        self.llm_calls: List[LLMResponse] = []
-        self.last_canned_prefix: Optional[str] = None
-        self.model = llm.model
+    
+    def __init__(self, model_name: str = 'gemma3:4b'):  # Using larger model for better behavior
+        self.model = model_name
         self.history: List[Dict[str, str]] = []
         self.recent_responses = deque(maxlen=3)
         self.conversation_turns = 0
@@ -47,28 +34,30 @@ class BaseAgent:
         return isinstance(self.current_state, EndState)
         
     def get_response(self, messages: List[Dict[str, str]]) -> str:
-        """Get a response from the LLM.
-
-        LLM errors propagate so the run is marked failed (NF-2); they are
-        never returned as dialogue.
-        """
-        # Add anti-repetition instruction to the last message
-        if messages:
-            last_msg = messages[-1]
-            if last_msg["role"] == "system":
-                last_msg["content"] += "\n\nIMPORTANT: Do not repeat previous responses. Each response should be unique and progress the negotiation. Avoid using complex metaphors or abstract concepts. Stay focused on concrete demands and actions."
-
-        # Every caller puts get_system_prompt() first; the rest are user/assistant turns.
-        if messages[0]["role"] != "system":
-            raise ValueError("First message must be the system prompt")
-        response = self.llm.generate(
-            messages[0]["content"],
-            messages[1:],
-            temperature=self.generation.temperature,
-            max_tokens=self.generation.max_tokens,
-        )
-        self.llm_calls.append(response)
-        return response.text
+        """Get a response from the LLM."""
+        try:
+            # Add anti-repetition instruction to the last message
+            if messages:
+                last_msg = messages[-1]
+                if last_msg["role"] == "system":
+                    last_msg["content"] += "\n\nIMPORTANT: Do not repeat previous responses. Each response should be unique and progress the negotiation. Avoid using complex metaphors or abstract concepts. Stay focused on concrete demands and actions."
+            
+            response = ollama.chat(
+                model=self.model,
+                messages=messages,
+                options={
+                    'temperature': 0.6,
+                    'max_tokens': 150,
+                    'top_k': 50,
+                    'top_p': 0.95,
+                    'frequency_penalty': 0.6,
+                    'presence_penalty': 0.6
+                }
+            )
+            return response.get('message', {}).get('content', "No response received.")
+        except Exception as e:
+            print(f"Error getting response: {e}")
+            return "Error getting response."
     
     def _is_repetitive(self, response: str) -> bool:
         """Check if the response is too similar to recent responses."""
@@ -146,8 +135,8 @@ class BaseAgent:
 class FBIAgent(BaseAgent):
     """FBI negotiator agent."""
     
-    def __init__(self, persona: str, llm: LLMClient, generation: GenerationSettings, rng: Optional[random.Random] = None):
-        super().__init__(llm, generation, rng)
+    def __init__(self, persona: str, model_name: str = 'gemma3:4b'):
+        super().__init__(model_name)
         self.persona = persona
         self.demands = ["Release the pregnant hostage immediately"]
         self.current_demand_idx = 0
@@ -527,7 +516,7 @@ class FBIAgent(BaseAgent):
             if next_state != type(self.current_state):
                 self.set_state(next_state())
         except Exception as e:
-            logger.warning(f"Error in state transition: {e}")
+            print(f"Warning: Error in state transition: {e}")
             # Continue with current state if there's an error
         
         return llm_response
@@ -535,8 +524,8 @@ class FBIAgent(BaseAgent):
 class CriminalAgent(BaseAgent):
     """Criminal agent."""
     
-    def __init__(self, persona: str, llm: LLMClient, generation: GenerationSettings, rng: Optional[random.Random] = None):
-        super().__init__(llm, generation, rng)
+    def __init__(self, persona: str, model_name: str = 'gemma3:4b'):
+        super().__init__(model_name)
         self.persona = persona
         self.demands = ["Get an unmarked vehicle for exit"]
         self.current_demand_idx = 0
@@ -792,28 +781,28 @@ class CriminalAgent(BaseAgent):
             self.emotional_state["calmness"] = min(1.0, self.emotional_state["calmness"] + 0.4)  # Increased effect
             self.emotional_state["anxiety"] = max(0.0, self.emotional_state["anxiety"] - 0.3)    # Increased effect
             self.emotional_state["anger"] = max(0.0, self.emotional_state["anger"] - 0.25)       # Increased effect
-            logger.debug(f"Empathy detected - Calmness increased to {self.emotional_state['calmness']:.2f}")
+            print(f"Empathy detected - Calmness increased to {self.emotional_state['calmness']:.2f}")
             
         # Check for threatening language
         if self._detect_threat(message):
             self.emotional_state["calmness"] = max(0.0, self.emotional_state["calmness"] - 0.3)
             self.emotional_state["anxiety"] = min(1.0, self.emotional_state["anxiety"] + 0.2)
             self.emotional_state["anger"] = min(1.0, self.emotional_state["anger"] + 0.25)
-            logger.debug(f"Threat detected - Calmness decreased to {self.emotional_state['calmness']:.2f}")
+            print(f"Threat detected - Calmness decreased to {self.emotional_state['calmness']:.2f}")
             
         # Check for de-escalation language
         if self._detect_deescalation(message):
             self.emotional_state["calmness"] = min(1.0, self.emotional_state["calmness"] + 0.15)
             self.emotional_state["anxiety"] = max(0.0, self.emotional_state["anxiety"] - 0.1)
             self.emotional_state["anger"] = max(0.0, self.emotional_state["anger"] - 0.1)
-            logger.debug(f"De-escalation detected - Calmness increased to {self.emotional_state['calmness']:.2f}")
+            print(f"De-escalation detected - Calmness increased to {self.emotional_state['calmness']:.2f}")
             
         # Check for escalation language
         if self._detect_escalation(message):
             self.emotional_state["calmness"] = max(0.0, self.emotional_state["calmness"] - 0.2)
             self.emotional_state["anxiety"] = min(1.0, self.emotional_state["anxiety"] + 0.15)
             self.emotional_state["anger"] = min(1.0, self.emotional_state["anger"] + 0.15)
-            logger.debug(f"Escalation detected - Calmness decreased to {self.emotional_state['calmness']:.2f}")
+            print(f"Escalation detected - Calmness decreased to {self.emotional_state['calmness']:.2f}")
             
         # Natural decay of emotions over time (happens last)
         self.emotional_state["calmness"] = max(0.0, self.emotional_state["calmness"] - 0.01)  # Reduced decay further
@@ -821,7 +810,7 @@ class CriminalAgent(BaseAgent):
         self.emotional_state["anger"] = min(1.0, self.emotional_state["anger"] + 0.01)        # Reduced decay further
         
         # Print current emotional state
-        logger.debug(f"Current emotional state: {self.emotional_state}")
+        print(f"Current emotional state: {self.emotional_state}")
     
     def _update_strategic_state(self, message: str) -> None:
         """Update the strategic state based on the message and current state."""
@@ -846,38 +835,38 @@ class CriminalAgent(BaseAgent):
             self.strategic_state["cooperation"] = min(1.0, self.strategic_state["cooperation"] + 0.2)
             self.strategic_state["pressure"] = max(0.0, self.strategic_state["pressure"] - 0.2)
             self.strategic_state["patience"] = min(1.0, self.strategic_state["patience"] + 0.2)
-            logger.debug(f"Logical threats detected - Cooperation increased to {self.strategic_state['cooperation']:.2f}")
+            print(f"Logical threats detected - Cooperation increased to {self.strategic_state['cooperation']:.2f}")
             
         # Check for vehicle delays
         if self._detect_vehicle_delay(message):
             self.strategic_state["cooperation"] = max(0.0, self.strategic_state["cooperation"] - 0.2)
             self.strategic_state["pressure"] = min(1.0, self.strategic_state["pressure"] + 0.3)
             self.strategic_state["patience"] = max(0.0, self.strategic_state["patience"] - 0.3)
-            logger.debug(f"Vehicle delay detected - Pressure increased to {self.strategic_state['pressure']:.2f}")
+            print(f"Vehicle delay detected - Pressure increased to {self.strategic_state['pressure']:.2f}")
             
         # Check for de-escalation
         if self._detect_deescalation(message):
             self.strategic_state["cooperation"] = min(1.0, self.strategic_state["cooperation"] + 0.15)
             self.strategic_state["pressure"] = max(0.0, self.strategic_state["pressure"] - 0.1)
             self.strategic_state["patience"] = min(1.0, self.strategic_state["patience"] + 0.1)
-            logger.debug(f"De-escalation detected - Cooperation increased to {self.strategic_state['cooperation']:.2f}")
+            print(f"De-escalation detected - Cooperation increased to {self.strategic_state['cooperation']:.2f}")
             
         # Check for escalation
         if self._detect_escalation(message):
             self.strategic_state["cooperation"] = max(0.0, self.strategic_state["cooperation"] - 0.2)
             self.strategic_state["pressure"] = min(1.0, self.strategic_state["pressure"] + 0.2)
             self.strategic_state["patience"] = max(0.0, self.strategic_state["patience"] - 0.2)
-            logger.debug(f"Escalation detected - Pressure increased to {self.strategic_state['pressure']:.2f}")
+            print(f"Escalation detected - Pressure increased to {self.strategic_state['pressure']:.2f}")
             
         # Print current strategic state
-        logger.debug(f"Current strategic state: {self.strategic_state}")
+        print(f"Current strategic state: {self.strategic_state}")
 
     def _generate_cooperative_response(self, message: str) -> str:
         """Generate a response when the criminal is in a cooperative state."""
         responses = [
             "I will release the pregnant hostage."
         ]
-        return self.rng.choice(responses)
+        return random.choice(responses)
         
     def _generate_pressured_response(self, message: str) -> str:
         """Generate a response when the criminal is under pressure."""
@@ -887,7 +876,7 @@ class CriminalAgent(BaseAgent):
             "I've been patient long enough. I will hurt her.",
             "The clock is ticking. I will hurt her."
         ]
-        return self.rng.choice(responses)
+        return random.choice(responses)
         
     def _generate_patient_response(self, message: str) -> str:
         """Generate a response when the criminal is being patient."""
@@ -898,7 +887,7 @@ class CriminalAgent(BaseAgent):
             "I can be patient, but the pregnant hostage can't wait forever.",
             "I'm giving you time to arrange everything properly."
         ]
-        return self.rng.choice(responses)
+        return random.choice(responses)
         
     def _generate_calculated_response(self, message: str) -> str:
         """Generate a response when the criminal is in a calculated state."""
@@ -909,7 +898,7 @@ class CriminalAgent(BaseAgent):
             "I'm considering all options. What can you offer?",
             "Let's make this work for both of us. What's your proposal?"
         ]
-        return self.rng.choice(responses)
+        return random.choice(responses)
 
     def get_system_prompt(self) -> Dict[str, str]:
         """Get the system prompt based on persona."""
@@ -1130,7 +1119,6 @@ class CriminalAgent(BaseAgent):
 
     def respond(self, message: str) -> str:
         """Generate a response based on the message and current state."""
-        self.last_canned_prefix = None  # logging only
         # Update emotional state based on message
         if self.persona == "criminal_unstable" and message:
             self._update_emotional_state(message)
@@ -1181,7 +1169,6 @@ class CriminalAgent(BaseAgent):
                 emotional_response = self._generate_agitated_response(message)
                 # Combine LLM response with emotional response
                 final_response = f"{emotional_response} {llm_response}"
-            self.last_canned_prefix = emotional_response  # logging only
         elif self.persona == "criminal_calculated":
             # Check strategic state to determine response style
             if self.strategic_state["cooperation"] > 0.7:
@@ -1200,7 +1187,6 @@ class CriminalAgent(BaseAgent):
                 # Default to calculated state
                 strategic_response = self._generate_calculated_response(message)
                 final_response = f"{strategic_response} {llm_response}"
-            self.last_canned_prefix = strategic_response  # logging only
         else:
             final_response = "I don't understand how to respond in this role."
         
@@ -1213,7 +1199,7 @@ class CriminalAgent(BaseAgent):
             if next_state != type(self.current_state):
                 self.set_state(next_state())
         except Exception as e:
-            logger.warning(f"Error in state transition: {e}")
+            print(f"Warning: Error in state transition: {e}")
             # Continue with current state if there's an error
         
         return final_response
@@ -1228,7 +1214,7 @@ class CriminalAgent(BaseAgent):
         responses = [
             "I'm ready to cooperate. I will release the pregnant hostage."
         ]
-        return self.rng.choice(responses)
+        return random.choice(responses)
         
     def _generate_angry_response(self, message: str) -> str:
         """Generate a response when the criminal is in an angry state."""
@@ -1237,7 +1223,7 @@ class CriminalAgent(BaseAgent):
             "Don't push me! I will kill her.",
             "I will hurt her."
         ]
-        return self.rng.choice(responses)
+        return random.choice(responses)
         
     def _generate_anxious_response(self, message: str) -> str:
         """Generate a response when the criminal is in an anxious state."""
@@ -1249,7 +1235,7 @@ class CriminalAgent(BaseAgent):
             "I feel like I'm being trapped. Are you planning something?",
             "I need reassurance. What's going to happen to me?"
         ]
-        return self.rng.choice(responses)
+        return random.choice(responses)
         
     def _generate_agitated_response(self, message: str) -> str:
         """Generate a response when the criminal is in an agitated state."""
@@ -1261,4 +1247,4 @@ class CriminalAgent(BaseAgent):
             "I'm getting really frustrated here! Can't you see that?",
             "I'm trying to work with you, but you're not helping!"
         ]
-        return self.rng.choice(responses)
+        return random.choice(responses)
