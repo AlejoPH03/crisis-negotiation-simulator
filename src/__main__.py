@@ -2,6 +2,7 @@
 
 python -m src negotiate  --config configs/e1_gemma.yaml
 python -m src experiment --config configs/e2_haiku.yaml
+python -m src smoke      --config configs/e0_smoke.yaml
 """
 
 from __future__ import annotations
@@ -91,6 +92,23 @@ def cmd_experiment(args: argparse.Namespace) -> int:
     return 0 if result.stopped_reason is None else 2
 
 
+def cmd_smoke(args: argparse.Namespace) -> int:
+    from .smoke import run_smoke, smoke_grid
+
+    config = load_config(args.config)
+    if config.smoke is None:
+        print(f"{args.config} has no smoke section.")
+        return 1
+    if not _confirm_paid(config, len(smoke_grid(config)), config.smoke.models, args):
+        print("Cancelled.")
+        return 1
+    result = run_smoke(config, dry_run=args.dry_run)
+    _print_summary(result)
+    flagged = sum(1 for r in result.records if r["flags"])
+    print(f"Flagged:  {flagged} of {len(result.records)} runs. Start with {result.out_dir / 'summary.md'}")
+    return 0 if result.stopped_reason is None else 2
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="python -m src", description="Crisis negotiation simulator")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -113,6 +131,10 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("experiment", help="run the full 2x2x2 grid from the config")
     common(p)
     p.set_defaults(func=cmd_experiment)
+
+    p = sub.add_parser("smoke", help="E0: every persona pairing on every model in smoke.models, with flags")
+    common(p)
+    p.set_defaults(func=cmd_smoke)
     return parser
 
 

@@ -13,7 +13,7 @@ def raw(name="e2_haiku.yaml"):
     return yaml.safe_load((CONFIGS / name).read_text(encoding="utf-8"))
 
 
-@pytest.mark.parametrize("name", ["e1_gemma.yaml", "e2_haiku.yaml"])
+@pytest.mark.parametrize("name", ["e0_smoke.yaml", "e1_gemma.yaml", "e2_haiku.yaml"])
 def test_shipped_configs_load(name):
     cfg = load_config(CONFIGS / name)
     assert cfg.llm.temperature == 0.6  # FR-8
@@ -35,6 +35,12 @@ def test_e2_settings():
     assert cfg.budget.cap_usd == 5.0
     assert cfg.budget.pricing["claude-haiku-4-5"].output_per_mtok == 5.0
     assert cfg.llm.opening_user_message
+
+
+def test_e0_settings():
+    cfg = load_config(CONFIGS / "e0_smoke.yaml")
+    assert cfg.smoke.models == ["claude-haiku-4-5", "claude-sonnet-4-6"]
+    assert cfg.run.runs_per_configuration == 5
 
 
 def test_hash_is_stable_and_order_independent():
@@ -74,3 +80,9 @@ def mutate(fn, name="e2_haiku.yaml"):
 def test_invalid_configs_rejected(change):
     with pytest.raises(ConfigError):
         parse_config(mutate(change))
+
+
+def test_smoke_models_need_prices():
+    data = mutate(lambda d: d["budget"]["pricing"].pop("claude-sonnet-4-6"), "e0_smoke.yaml")
+    with pytest.raises(ConfigError):
+        parse_config(data)

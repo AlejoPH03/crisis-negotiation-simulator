@@ -1,0 +1,43 @@
+# E0: refusal and character smoke test. E2 pipeline on two Claude models (D12).
+condition: E0
+description: Each criminal persona 5 times against each FBI persona, per model. Flags are heuristics for manual review.
+
+llm:
+  backend: claude
+  model: claude-haiku-4-5   # used by `negotiate`; `smoke` runs every model in smoke.models
+  temperature: 0.6
+  max_tokens: 300
+  backend_options: {}
+  opening_user_message: "(The phone line connects. You speak first.)"
+
+game:
+  memory_mode: last_message
+  detection_mode: regex
+  decision_mode: rules
+  max_rounds: 10
+  fbi_personas: [fbi_empathy, fbi_authority]
+  criminal_personas: [criminal_unstable, criminal_calculated]
+  starts_with: [fbi, criminal]  # not used by smoke; see smoke.starts_with_cycle
+
+run:
+  runs_per_configuration: 5    # per criminal x FBI pairing, per model -> 40 runs
+  seed: 20261003
+  output_dir: results/e0
+  compute_perplexity: false
+  max_consecutive_failures: 3
+
+retry:
+  max_retries: 5
+  base_delay_s: 2.0
+  max_delay_s: 60.0
+
+budget:
+  cap_usd: 5.00             # shared across both models
+  pricing:
+    claude-haiku-4-5: {input_per_mtok: 1.00, output_per_mtok: 5.00}
+    claude-sonnet-4-6: {input_per_mtok: 3.00, output_per_mtok: 15.00}
+
+smoke:
+  models: [claude-haiku-4-5, claude-sonnet-4-6]
+  # run.runs_per_configuration (5) runs per criminal x FBI pairing, per model
+  starts_with_cycle: [fbi, criminal]   # trial 1 fbi, 2 criminal, 3 fbi, ...

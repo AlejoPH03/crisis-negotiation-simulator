@@ -29,9 +29,11 @@ Rebuild of a University of Nottingham COMP3004 project (Gemma 3 via Ollama) on t
 - Ollama running locally with `gemma3:4b` for the baseline
 - Claude model IDs are set in config files, not in code
 
-## Commands (fill in as they are created)
-- Install: `pip install -r requirements.txt`
+## Commands (run from the repo root with the venv active: `.venv\Scripts\activate`)
+- Install: `python -m venv .venv`, then `pip install -r requirements.txt` (always install into `.venv`)
 - Test: `pytest`
 - Lint and format: `ruff check . && ruff format .`
-- Run one negotiation: TBD
-- Run an experiment: TBD
+- Run one negotiation: `python -m src negotiate --config configs/e1_gemma.yaml` (Gemma) or `configs/e2_haiku.yaml` (Claude); optional `--fbi`, `--criminal`, `--starts-with`, `--seed`
+- Run an experiment: `python -m src experiment --config configs/e1_gemma.yaml` (E1) or `configs/e2_haiku.yaml` (E2)
+- E0 smoke test: `python -m src smoke --config configs/e0_smoke.yaml`
+- Any of the above with `--dry-run` uses a canned mock client (no Ollama, no API calls, no cost)
