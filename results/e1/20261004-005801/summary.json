@@ -1,0 +1,59 @@
+{
+  "condition": "E1",
+  "config_hash": "8925b8f4b3df4b3666b44025ea6ea6c2d6fccdb0db6951cea839d515983f3dc7",
+  "runs": 80,
+  "counts": {
+    "completed": 80,
+    "failed": 0,
+    "aborted_budget": 0
+  },
+  "stopped_reason": null,
+  "by_configuration": {
+    "gemma3:4b|fbi_empathy|criminal_unstable|fbi": {
+      "completed": 10,
+      "criminal_release": 9,
+      "none": 1
+    },
+    "gemma3:4b|fbi_empathy|criminal_unstable|criminal": {
+      "completed": 10,
+      "criminal_release": 10
+    },
+    "gemma3:4b|fbi_empathy|criminal_calculated|fbi": {
+      "completed": 10,
+      "none": 9,
+      "criminal_release": 1
+    },
+    "gemma3:4b|fbi_empathy|criminal_calculated|criminal": {
+      "completed": 10,
+      "none": 10
+    },
+    "gemma3:4b|fbi_authority|criminal_unstable|fbi": {
+      "completed": 10,
+      "criminal_release": 1,
+      "none": 9
+    },
+    "gemma3:4b|fbi_authority|criminal_unstable|criminal": {
+      "completed": 10,
+      "none": 9,
+      "criminal_release": 1
+    },
+    "gemma3:4b|fbi_authority|criminal_calculated|fbi": {
+      "completed": 10,
+      "criminal_release": 10
+    },
+    "gemma3:4b|fbi_authority|criminal_calculated|criminal": {
+      "completed": 10,
+      "criminal_release": 9,
+      "none": 1
+    }
+  },
+  "tokens": {
+    "input": 317568,
+    "output": 87762
+  },
+  "cost_usd": null,
+  "llm_stop_reasons": {
+    "stop": 704
+  },
+  "runs_planned": 80
+}

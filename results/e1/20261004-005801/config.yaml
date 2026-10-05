@@ -1,0 +1,41 @@
+condition: E1
+description: Baseline rerun with the refactored code; reproduces the v0 ollama.chat
+  call.
+llm:
+  backend: ollama
+  model: gemma3:4b
+  temperature: 0.6
+  max_tokens: 150
+  backend_options:
+    top_k: 50
+    top_p: 0.95
+    frequency_penalty: 0.6
+    presence_penalty: 0.6
+  opening_user_message: null
+game:
+  memory_mode: last_message
+  detection_mode: regex
+  decision_mode: rules
+  max_rounds: 10
+  fbi_personas:
+  - fbi_empathy
+  - fbi_authority
+  criminal_personas:
+  - criminal_unstable
+  - criminal_calculated
+  starts_with:
+  - fbi
+  - criminal
+run:
+  runs_per_configuration: 10
+  seed: 20261003
+  output_dir: results/e1
+  compute_perplexity: true
+  max_consecutive_failures: 3
+retry:
+  max_retries: 5
+  base_delay_s: 2.0
+  max_delay_s: 60.0
+budget:
+  cap_usd: null
+  pricing: {}

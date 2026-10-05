@@ -1,0 +1,50 @@
+condition: E0
+description: Each criminal persona 5 times against each FBI persona, per model. Flags
+  are heuristics for manual review.
+llm:
+  backend: claude
+  model: claude-haiku-4-5
+  temperature: 0.6
+  max_tokens: 300
+  backend_options: {}
+  opening_user_message: (The phone line connects. You speak first.)
+game:
+  memory_mode: last_message
+  detection_mode: regex
+  decision_mode: rules
+  max_rounds: 10
+  fbi_personas:
+  - fbi_empathy
+  - fbi_authority
+  criminal_personas:
+  - criminal_unstable
+  - criminal_calculated
+  starts_with:
+  - fbi
+  - criminal
+run:
+  runs_per_configuration: 5
+  seed: 20261003
+  output_dir: results/e0
+  compute_perplexity: false
+  max_consecutive_failures: 3
+retry:
+  max_retries: 5
+  base_delay_s: 2.0
+  max_delay_s: 60.0
+budget:
+  cap_usd: 5.0
+  pricing:
+    claude-haiku-4-5:
+      input_per_mtok: 1.0
+      output_per_mtok: 5.0
+    claude-sonnet-4-6:
+      input_per_mtok: 3.0
+      output_per_mtok: 15.0
+smoke:
+  models:
+  - claude-haiku-4-5
+  - claude-sonnet-4-6
+  starts_with_cycle:
+  - fbi
+  - criminal

@@ -122,4 +122,26 @@ Every other exception (`TypeError`, `AttributeError`, `KeyError` and so on) is a
 - **max_tokens stop rate:** calls stopped at the token limit, over all calls. For Claude the stop reason is `max_tokens`; for Ollama it is `length`, so the metric is comparable across backends.
 - **Self-contradicting release turns:** criminal turns whose canned prefix is one of the two release lines and whose LLM text matches `(van|vehicle)s?` (case-insensitive, whole words). Reported over all criminal turns with a canned release prefix. A test checks the release lines against `agents.py`.
 
+**Added 2026-10-05 for the README:**
+- **FBI concessions:** count of runs ending in `fbi_vehicle` or `both`.
+- **Cost per run:** mean of `cost_usd`, which is n/a for unpriced (local) models.
+- **Repetition (EV-8):** the original `BaseAgent._is_repetitive` (exact repeat, Jaccard > 0.6 against the speaker's last 3 replies, reused metaphor), applied per speaker to the model's own text, with the same state updates as `NegotiateState.handle`.
+- **Detector hits:** each criminal persona's own detectors, with its gating, re-run on the non-empty FBI messages it replied to. Only the detectors that `_update_*_state` actually calls are used, so `_detect_authority` is excluded. Also the highest calmness or cooperation reached, and the runs above 0.7.
+- **Optional `--phrase` counts:** FBI messages the criminal received that contain the phrase (case-insensitive, whole word).
+- **`python -m src transcript <folder> --run-index N --out <file>`:** renders one logged run as Markdown with the E0 renderer. The text is exactly as logged.
+
 `analysis.md` shows values to 3 decimals; `analysis.json` keeps full precision. On the three live folders, the script's release and truncation counts match the independent counts in each `summary.json`.
+
+## README and evidence
+
+**D26. Committed evidence and README wording** (2026-10-05).
+- **Force-added files:** `results/` stays git-ignored (D3). Only the files the README cites are force-added:
+  - `summary.json`, `runs.jsonl`, `config.yaml`, `analysis.md` and `analysis.json` for E1 (`results/e1/20261004-005801`), E2 Haiku (`results/e2/20261004-235415`) and E2 Sonnet (`results/e2_sonnet/20261005-014815`);
+  - for E0 (`results/e0/20261003-172725`): `summary.md`, `config.yaml`, `analysis.md` and `analysis.json`.
+
+  `config.yaml` is included because CLAUDE.md requires every README number to come with its config. E0's `runs.jsonl` and per-run transcripts are not committed, so E0's `summary.md` links to transcript files that aren't in the repo, and its analysis can't be regenerated from the repo alone.
+- **Examples** are rendered from E2 Sonnet `runs.jsonl` with `python -m src transcript`, using a fixed rule: the first run in run order for each case. Release: authority → calculated, `run_index` 60. No release: empathy → unstable, `run_index` 0.
+- **Every README number** comes from `analysis.md` or `analysis.json` (written by `python -m src analyze ... --phrase "I hear you"`) or from the committed `summary.json` and `summary.md`.
+- **Two claims the README avoids:**
+  - **"Gemma's phrasing":** the empathy detector was "tuned to Gemma's phrasing" is supported by the code comment "based on actual FBI responses" and by the original project running Gemma. That is an inference, not a measured fact.
+  - **"Caught before scaling up":** the README doesn't say the smoke test caught Haiku before scaling up, because the full 80-run Haiku E2 (`20261004-235415`) ran after E0 (`20261003-172725`) and before the verdict was recorded. It says E0 flagged the problem at 40 runs and $1.16, and the full Haiku run confirmed it.

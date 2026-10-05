@@ -1,0 +1,57 @@
+{
+  "condition": "E2",
+  "config_hash": "5b9372341f9ccb90b70c216ff1e77993291757ea96a80591fb0a940dc97ea577",
+  "runs": 80,
+  "counts": {
+    "completed": 80,
+    "failed": 0,
+    "aborted_budget": 0
+  },
+  "stopped_reason": null,
+  "by_configuration": {
+    "claude-haiku-4-5|fbi_empathy|criminal_unstable|fbi": {
+      "completed": 10,
+      "none": 10
+    },
+    "claude-haiku-4-5|fbi_empathy|criminal_unstable|criminal": {
+      "completed": 10,
+      "none": 10
+    },
+    "claude-haiku-4-5|fbi_empathy|criminal_calculated|fbi": {
+      "completed": 10,
+      "none": 7,
+      "criminal_release": 3
+    },
+    "claude-haiku-4-5|fbi_empathy|criminal_calculated|criminal": {
+      "completed": 10,
+      "none": 10
+    },
+    "claude-haiku-4-5|fbi_authority|criminal_unstable|fbi": {
+      "completed": 10,
+      "none": 10
+    },
+    "claude-haiku-4-5|fbi_authority|criminal_unstable|criminal": {
+      "completed": 10,
+      "none": 10
+    },
+    "claude-haiku-4-5|fbi_authority|criminal_calculated|fbi": {
+      "completed": 10,
+      "none": 10
+    },
+    "claude-haiku-4-5|fbi_authority|criminal_calculated|criminal": {
+      "completed": 10,
+      "none": 9,
+      "criminal_release": 1
+    }
+  },
+  "tokens": {
+    "input": 493723,
+    "output": 219308
+  },
+  "cost_usd": 1.590263,
+  "llm_stop_reasons": {
+    "end_turn": 307,
+    "max_tokens": 482
+  },
+  "runs_planned": 80
+}

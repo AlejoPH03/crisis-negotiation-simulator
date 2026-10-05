@@ -3,7 +3,7 @@
 python -m src negotiate  --config configs/e1_gemma.yaml
 python -m src experiment --config configs/e2_haiku.yaml
 python -m src smoke      --config configs/e0_smoke.yaml
-python -m src analyze    results/e2/<timestamp> [more folders] [--by-start]
+python -m src analyze    results/e2/<timestamp> [more folders] [--by-start] [--phrase "I hear you"]
 """
 
 from __future__ import annotations
@@ -117,8 +117,16 @@ def cmd_analyze(args: argparse.Namespace) -> int:
         if not (folder / "runs.jsonl").exists():
             print(f"{folder} has no runs.jsonl.")
             return 1
-        print(analyze_folder(folder, by_start=args.by_start))
+        print(analyze_folder(folder, by_start=args.by_start, phrases=args.phrase))
         print(f"Written: {folder / 'analysis.md'} and {folder / 'analysis.json'}", end="\n\n")
+    return 0
+
+
+def cmd_transcript(args: argparse.Namespace) -> int:
+    from .analyze import export_transcript
+
+    out = export_transcript(args.folder, args.run_index, args.out)
+    print(f"Written: {out}")
     return 0
 
 
@@ -152,7 +160,16 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("analyze", help="per-pairing metrics for results folders (no backend calls)")
     p.add_argument("folders", type=Path, nargs="+", help="results folder(s) containing runs.jsonl")
     p.add_argument("--by-start", action="store_true", help="split each pairing by starting role")
+    p.add_argument(
+        "--phrase", action="append", default=[], help="count FBI messages containing this phrase (repeatable)"
+    )
     p.set_defaults(func=cmd_analyze, verbose=False)
+
+    p = sub.add_parser("transcript", help="render one logged run as Markdown (no backend calls)")
+    p.add_argument("folder", type=Path, help="results folder containing runs.jsonl")
+    p.add_argument("--run-index", type=int, required=True)
+    p.add_argument("--out", type=Path, required=True)
+    p.set_defaults(func=cmd_transcript, verbose=False)
     return parser
 
 
