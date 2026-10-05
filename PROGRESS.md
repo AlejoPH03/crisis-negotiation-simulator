@@ -10,7 +10,6 @@ Milestones from `docs/SPEC.md`. A milestone is done only when its tests **and** 
 | 3 | Tools and classifier (E3) | Not started | |
 | 4 | LLM-decided outcomes (E4) and tier comparison (E5) | Not started | |
 | 5 | Evaluation | Not started | |
-| 6 | Repo and CV | Not started | |
 
 ## Log
 
