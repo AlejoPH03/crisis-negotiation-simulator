@@ -3,6 +3,7 @@
 python -m src negotiate  --config configs/e1_gemma.yaml
 python -m src experiment --config configs/e2_haiku.yaml
 python -m src smoke      --config configs/e0_smoke.yaml
+python -m src analyze    results/e2/<timestamp> [more folders] [--by-start]
 """
 
 from __future__ import annotations
@@ -109,6 +110,18 @@ def cmd_smoke(args: argparse.Namespace) -> int:
     return 0 if result.stopped_reason is None else 2
 
 
+def cmd_analyze(args: argparse.Namespace) -> int:
+    from .analyze import analyze_folder
+
+    for folder in args.folders:
+        if not (folder / "runs.jsonl").exists():
+            print(f"{folder} has no runs.jsonl.")
+            return 1
+        print(analyze_folder(folder, by_start=args.by_start))
+        print(f"Written: {folder / 'analysis.md'} and {folder / 'analysis.json'}", end="\n\n")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="python -m src", description="Crisis negotiation simulator")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -135,6 +148,11 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("smoke", help="E0: every persona pairing on every model in smoke.models, with flags")
     common(p)
     p.set_defaults(func=cmd_smoke)
+
+    p = sub.add_parser("analyze", help="per-pairing metrics for results folders (no backend calls)")
+    p.add_argument("folders", type=Path, nargs="+", help="results folder(s) containing runs.jsonl")
+    p.add_argument("--by-start", action="store_true", help="split each pairing by starting role")
+    p.set_defaults(func=cmd_analyze, verbose=False)
     return parser
 
 

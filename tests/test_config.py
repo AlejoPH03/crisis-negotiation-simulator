@@ -13,7 +13,7 @@ def raw(name="e2_haiku.yaml"):
     return yaml.safe_load((CONFIGS / name).read_text(encoding="utf-8"))
 
 
-@pytest.mark.parametrize("name", ["e0_smoke.yaml", "e1_gemma.yaml", "e2_haiku.yaml"])
+@pytest.mark.parametrize("name", ["e0_smoke.yaml", "e1_gemma.yaml", "e2_haiku.yaml", "e2_sonnet.yaml"])
 def test_shipped_configs_load(name):
     cfg = load_config(CONFIGS / name)
     assert cfg.llm.temperature == 0.6  # FR-8
@@ -86,3 +86,19 @@ def test_smoke_models_need_prices():
     data = mutate(lambda d: d["budget"]["pricing"].pop("claude-sonnet-4-6"), "e0_smoke.yaml")
     with pytest.raises(ConfigError):
         parse_config(data)
+
+
+def test_e2_sonnet_differs_from_e2_haiku_only_in_model_price_output_and_cap():
+    haiku, sonnet = raw("e2_haiku.yaml"), raw("e2_sonnet.yaml")
+    assert sonnet["llm"]["model"] == "claude-sonnet-4-6"
+    assert sonnet["run"]["output_dir"] == "results/e2_sonnet"
+    assert sonnet["budget"] == {
+        "cap_usd": 6.0,
+        "pricing": {"claude-sonnet-4-6": {"input_per_mtok": 3.0, "output_per_mtok": 15.0}},
+    }
+    for section in (sonnet, haiku):
+        section["llm"].pop("model")
+        section["run"].pop("output_dir")
+        section.pop("budget")
+    assert sonnet == haiku
+    assert load_config(CONFIGS / "e2_sonnet.yaml").llm.temperature == 0.6

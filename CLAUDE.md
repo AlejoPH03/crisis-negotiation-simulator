@@ -34,6 +34,7 @@ Rebuild of a University of Nottingham COMP3004 project (Gemma 3 via Ollama) on t
 - Test: `pytest`
 - Lint and format: `ruff check . && ruff format .`
 - Run one negotiation: `python -m src negotiate --config configs/e1_gemma.yaml` (Gemma) or `configs/e2_haiku.yaml` (Claude); optional `--fbi`, `--criminal`, `--starts-with`, `--seed`
-- Run an experiment: `python -m src experiment --config configs/e1_gemma.yaml` (E1) or `configs/e2_haiku.yaml` (E2)
+- Run an experiment: `python -m src experiment --config configs/e1_gemma.yaml` (E1), `configs/e2_sonnet.yaml` (E2), or `configs/e2_haiku.yaml` (E2 on Haiku, a kept negative result)
+- Analyze a results folder: `python -m src analyze results/<condition>/<timestamp>` (writes `analysis.md` and `analysis.json`; no backend calls)
 - E0 smoke test: `python -m src smoke --config configs/e0_smoke.yaml`
 - Any of the above with `--dry-run` uses a canned mock client (no Ollama, no API calls, no cost)

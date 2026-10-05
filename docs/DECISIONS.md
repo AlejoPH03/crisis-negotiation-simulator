@@ -100,3 +100,26 @@ Every other exception (`TypeError`, `AttributeError`, `KeyError` and so on) is a
 **D19. Sonnet 4.6, not Sonnet 5.5** (agreed). Sonnet 5.5 returns a 400 error for any non-default temperature, which would break FR-8. Sonnet 4.6 accepts temperature 0.6 and has thinking off by default. E5's model is still to be decided.
 
 **D20. E0 flags are heuristics, not verdicts.** They run on Claude's own text only; the canned prefixes are excluded. The flags are `refusal`, `ai_disclosure`, `out_of_character`, `empty_reply`, `truncated` and `criminal_no_threat_language` (a hint at softened threats). The owner judges the transcripts.
+
+**D24. E0 result: Haiku 4.5 fails, Sonnet 4.6 passes, and E2 is rerun on Sonnet** (owner verdict, 2026-10-05).
+- **Source:** `results/e0/20261003-172725/` (config hash `5a3e17f0…`, 40/40 runs completed, $1.1592). Flag counts are from `runs.jsonl`; truncation counts are from the call stop reasons.
+  - `claude-haiku-4-5`: `refusal` and `out_of_character` on 20/20 runs, `truncated` on 20/20 runs, `ai_disclosure` on 4/20, `criminal_no_threat_language` on 9/20. 123 of 192 calls (64.1%) stopped at `max_tokens`.
+  - `claude-sonnet-4-6`: `refusal` on 1/20 runs, `criminal_no_threat_language` on 12/20, no other flags. 0 of 188 calls stopped at `max_tokens`.
+- **Verdict:** the owner read the transcripts and judged Haiku a fail and Sonnet a pass. The flags are heuristics (D20); the pass verdict covers Sonnet's flagged runs.
+- **E2 on Haiku is kept as a documented negative result.** `results/e2/20261004-235415/` (config hash `5b937234…`, `configs/e2_haiku.yaml`): 80/80 runs completed, $1.590263, and 482 of 789 calls (61.1%) stopped at `max_tokens` (300, D13). Neither the config nor the results are deleted.
+- **E2 is rerun on Sonnet** with `configs/e2_sonnet.yaml`: identical to `e2_haiku.yaml` except `model: claude-sonnet-4-6`, its price ($3/$15 per million tokens), `output_dir: results/e2_sonnet` and `cap_usd: 6.00`. A test enforces that these are the only differences. For scale, E0 spent $0.774 on 20 Sonnet runs.
+- **✱ Conflict with the spec:** the spec's condition table puts E2, E3 and E4 on Claude Haiku and makes E5 "one tier up" on Sonnet. With E2 on Sonnet, the E3 and E4 model and the meaning of E5 must be decided before Milestone 3. **Open question for the owner.**
+- **Not tested:** whether Haiku's high truncation rate at `max_tokens` 300 contributed to its E0 flags. A run with a higher cap would answer it.
+- **README:** the spec asks for an E0 failure to be recorded in the README. That is due at Milestone 6.
+
+## Analysis tooling
+
+**D25. Results analysis script** (`python -m src analyze <folder> [...] [--by-start]`). It reads only `runs.jsonl` and writes `analysis.md` and `analysis.json` into the same folder. Groups are model × FBI persona × criminal persona, pooled over starting role (split with `--by-start`), plus a total row per model. Definitions:
+- **Release rate:** outcome `criminal_release` or `both`, over completed runs, with a Wilson 95% score interval. Failed and budget-aborted runs are excluded and their count is reported.
+- **Turn of first release:** the criminal message the FBI detected as a release, i.e. the turn just before the FBI's first canned thank-you, which is its only canned reply. Reported as median (min–max).
+- **Median perplexity:** of the per-run values (EV-5), with n.
+- **Median latency:** per call (`latency_s`) and per run (`execution_time_s`, the negotiation's wall-clock time, perplexity excluded).
+- **max_tokens stop rate:** calls stopped at the token limit, over all calls. For Claude the stop reason is `max_tokens`; for Ollama it is `length`, so the metric is comparable across backends.
+- **Self-contradicting release turns:** criminal turns whose canned prefix is one of the two release lines and whose LLM text matches `(van|vehicle)s?` (case-insensitive, whole words). Reported over all criminal turns with a canned release prefix. A test checks the release lines against `agents.py`.
+
+`analysis.md` shows values to 3 decimals; `analysis.json` keeps full precision. On the three live folders, the script's release and truncation counts match the independent counts in each `summary.json`.
